@@ -10,7 +10,7 @@ _C.epochs = 100
 _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
-_C.samples_per_gpu = 20
+_C.samples_per_gpu = 16
 _C.num_workers = 4
 
 _C.solver = CN()
@@ -24,7 +24,7 @@ _C.solver.txtrec_weight = 1.0
 
 _C.clip_config = "openai/clip-vit-base-patch16"
 _C.image_size = 336
-_C.logit_scale_init_value = 2.6592
+_C.logit_scale_init_value = 0.07
 _C.max_position_embeddings = 512
 _C.num_queries = 100
 _C.patch_mask_ratio = 0.75

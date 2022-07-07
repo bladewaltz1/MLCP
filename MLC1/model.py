@@ -3,15 +3,42 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from transformers.models.clip.modeling_clip import (
-    CLIPVisionTransformer, CLIPTextTransformer, 
-    CLIPVisionConfig, CLIPTextConfig, clip_loss
+    CLIPVisionTransformer, 
+    CLIPVisionConfig, 
+    CLIPTextTransformer, 
+    CLIPTextConfig
 )
+
+
+@torch.no_grad()
+def concat_all_gather(tensor):
+    """
+    Performs all_gather operation on the provided tensors.
+    *** Warning ***: torch.distributed.all_gather has no gradient.
+    """
+    tensors_gather = [torch.ones_like(tensor)
+        for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+
+    output = torch.cat(tensors_gather, dim=0)
+    return output
+
+
+def contrastive_loss(q, k, tau):
+    # gather all targets
+    k = concat_all_gather(k)
+    # Einstein sum is more intuitive
+    logits = torch.einsum("nc,mc->nm", [q, k]) / tau
+    N = logits.shape[0]  # batch size per GPU
+    labels = (torch.arange(N, dtype=torch.long) + \
+              N * torch.distributed.get_rank()).cuda()
+    return F.cross_entropy(logits, labels) / 2
 
 
 def patchify(imgs, patch_size):
     h = w = imgs.shape[2] // patch_size
     x = imgs.reshape(shape=(imgs.shape[0], 3, h, patch_size, w, patch_size))
-    x = torch.einsum('nchpwq->nhwpqc', x)
+    x = torch.einsum("nchpwq->nhwpqc", x)
     x = x.reshape(shape=(imgs.shape[0], h * w, patch_size**2 * 3))
     return x
 
@@ -19,7 +46,7 @@ def patchify(imgs, patch_size):
 def unpatchify(x, patch_size):
     h = w = int(x.shape[1] ** 0.5)
     x = x.reshape(shape=(x.shape[0], h, w, patch_size, patch_size, 3))
-    x = torch.einsum('nhwpqc->nchpwq', x)
+    x = torch.einsum("nhwpqc->nchpwq", x)
     imgs = x.reshape(shape=(x.shape[0], 3, h * patch_size, h * patch_size))
     return imgs
 
@@ -213,15 +240,21 @@ class PretrainModel(nn.Module):
         projected_img_mlc = projected_img_mlc.view(-1, self.cfg.projection_dim)
         projected_txt_mlc = projected_txt_mlc.view(-1, self.cfg.projection_dim)
         projected_txt_mlc = projected_txt_mlc[indices, :]
-        query_similarity = torch.matmul(projected_img_mlc, 
-                                        projected_txt_mlc.t())
-        query_similarity *= self.logit_scale1.exp()
-        loss_fine_contrastive = clip_loss(query_similarity)
+
+        loss_fine_contrastive = contrastive_loss(projected_img_mlc, 
+                                                 projected_txt_mlc,
+                                                 self.logit_scale1) + \
+                                contrastive_loss(projected_txt_mlc, 
+                                                 projected_img_mlc,
+                                                 self.logit_scale1)
 
         # contrastive loss between averaged mlc
-        similarity = torch.matmul(averaged_img_mlc, averaged_txt_mlc.t())
-        similarity *= self.logit_scale2.exp()
-        loss_coarse_contrastive = clip_loss(similarity)
+        loss_coarse_contrastive = contrastive_loss(averaged_img_mlc, 
+                                                   averaged_txt_mlc,
+                                                   self.logit_scale2) + \
+                                  contrastive_loss(averaged_txt_mlc, 
+                                                   averaged_img_mlc,
+                                                   self.logit_scale2)
 
         # image reconstruction
         masked_img_embeds = self.img_embedding(img, img_mask)
