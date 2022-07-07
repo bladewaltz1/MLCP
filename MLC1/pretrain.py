@@ -7,6 +7,7 @@ import transformers
 from torch.nn.parallel import DistributedDataParallel
 
 from utils import get_rank, get_world_size, mkdir, synchronize
+from utils.amp import NativeScalerWithGradNormCount
 from utils.checkpointer import Checkpointer
 from utils.dataloader import make_data_loader
 from utils.logger import setup_logger
@@ -16,7 +17,8 @@ from MLC1.data import Dataset, collate_fn
 from MLC1.model import PretrainModel
 
 
-def train(cfg, model, optimizer, data_loader, scheduler, checkpointer):
+def train(cfg, model, optimizer, loss_scaler, data_loader, 
+          scheduler, checkpointer):
     logger = logging.getLogger("train")
     logger.info("Start training")
     model.train()
@@ -24,20 +26,21 @@ def train(cfg, model, optimizer, data_loader, scheduler, checkpointer):
     for epoch in range(cfg.start_epoch, cfg.epochs):
         if cfg.distributed:
             data_loader.batch_sampler.sampler.set_epoch(epoch)
+        optimizer.zero_grad()
 
         for iteration, batch in enumerate(data_loader):
             iteration = iteration + 1
             batch = [p.to(cfg.device) for p in batch]
 
-            loss_fctr, loss_cctr, loss_imgrec, loss_txtrec = model(*batch)
-            loss = loss_fctr * cfg.solver.fctr_weight + \
-                    loss_cctr * cfg.solver.cctr_weight + \
-                    loss_imgrec * cfg.solver.imgrec_weight + \
-                    loss_txtrec * cfg.solver.txtrec_weight
+            with torch.cuda.amp.autocast():
+                loss_fctr, loss_cctr, loss_imgrec, loss_txtrec = model(*batch)
+                loss = loss_fctr * cfg.solver.fctr_weight + \
+                       loss_cctr * cfg.solver.cctr_weight + \
+                       loss_imgrec * cfg.solver.imgrec_weight + \
+                       loss_txtrec * cfg.solver.txtrec_weight
 
+            loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
             scheduler.step()
 
             if iteration % cfg.log_time == 0:
@@ -94,6 +97,8 @@ if __name__ == "__main__":
                                   weight_decay=cfg.solver.weight_decay,
                                   betas=cfg.solver.betas)
 
+    loss_scaler = NativeScalerWithGradNormCount()
+
     num_gpus = get_world_size()
     iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
     warmup_steps = iterations_per_epoch
@@ -107,6 +112,7 @@ if __name__ == "__main__":
     checkpointer = Checkpointer(model=model,
                                 optimizer=optimizer,
                                 scheduler=scheduler,
+                                loss_scaler=loss_scaler,
                                 save_dir=save_dir,
                                 save_to_disk=get_rank() == 0,
                                 logger=logger)
@@ -131,6 +137,7 @@ if __name__ == "__main__":
     train(cfg=cfg,
           model=model,
           optimizer=optimizer,
+          loss_scaler=loss_scaler,
           data_loader=data_loader,
           scheduler=scheduler,
           checkpointer=checkpointer)

@@ -67,14 +67,16 @@ class ImageEmbeddingsWithMask(nn.Module):
         position_ids = torch.arange(num_patches).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
-        self.mask_embedding = nn.Parameter(torch.zeros([embed_dim]))
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, embed_dim]))
         torch.nn.init.normal_(self.mask_embedding, std=.02)
         self.layer_norm = nn.LayerNorm(embed_dim)
 
     def forward(self, pixel_values, mask):
         patch_embeds = self.patch_embedding(pixel_values)
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-        patch_embeds[mask] = self.mask_embedding
+        # patch_embeds[mask] = self.mask_embedding
+        mask = mask.to(torch.float32).unsqueeze(-1)
+        patch_embeds = patch_embeds * (1 - mask) + self.mask_embedding * mask
 
         embeddings = patch_embeds + self.position_embedding(self.position_ids)
         embeddings = self.layer_norm(embeddings)
@@ -92,7 +94,7 @@ class TextEmbeddingsWithMask(nn.Module):
         position_ids = torch.arange(cfg.max_position_embeddings).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
-        self.mask_embedding = nn.Parameter(torch.zeros([embed_dim]))
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, embed_dim]))
         torch.nn.init.normal_(self.mask_embedding, std=.02)
         self.layer_norm = nn.LayerNorm(embed_dim)
 
@@ -102,7 +104,9 @@ class TextEmbeddingsWithMask(nn.Module):
         position_embeds = self.position_embedding(position_ids)
 
         inputs_embeds = self.token_embedding(input_ids)
-        inputs_embeds[mask] = self.mask_embedding
+        # inputs_embeds[mask] = self.mask_embedding
+        mask = mask.to(torch.float32).unsqueeze(-1)
+        inputs_embeds = inputs_embeds * (1 - mask) + self.mask_embedding * mask
 
         embeddings = inputs_embeds + position_embeds
         embeddings = self.layer_norm(embeddings)
