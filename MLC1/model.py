@@ -47,7 +47,7 @@ class ImageEmbeddingsWithMask(nn.Module):
     def forward(self, pixel_values, mask):
         patch_embeds = self.patch_embedding(pixel_values)
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-        patch_embeds[mask] = self.mask_embedding.to(patch_embeds.dtype)
+        patch_embeds[mask] = self.mask_embedding
 
         embeddings = patch_embeds + self.position_embedding(self.position_ids)
         embeddings = self.layer_norm(embeddings)
@@ -75,7 +75,7 @@ class TextEmbeddingsWithMask(nn.Module):
         position_embeds = self.position_embedding(position_ids)
 
         inputs_embeds = self.token_embedding(input_ids)
-        inputs_embeds[mask] = self.mask_embedding.to(inputs_embeds.dtype)
+        inputs_embeds[mask] = self.mask_embedding
 
         embeddings = inputs_embeds + position_embeds
         embeddings = self.layer_norm(embeddings)
