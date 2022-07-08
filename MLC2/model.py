@@ -28,7 +28,7 @@ class ImageEmbeddingsWithMask(nn.Module):
         position_ids = torch.arange(num_patches).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
-        self.mask_embedding = nn.Parameter(torch.zeros([cfg.hidden_size]))
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, cfg.hidden_size]))
         torch.nn.init.normal_(self.mask_embedding, std=0.02)
 
     def forward(self, pixel_values, mask=None):
@@ -36,7 +36,10 @@ class ImageEmbeddingsWithMask(nn.Module):
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
 
         if mask is not None:
-            patch_embeds[mask] = self.mask_embedding
+            # patch_embeds[mask] = self.mask_embedding
+            mask = mask.to(torch.float32).unsqueeze(-1)
+            patch_embeds = patch_embeds * (1 - mask) + \
+                           self.mask_embedding * mask
 
         embeddings = patch_embeds + self.position_embedding(self.position_ids)
         return embeddings
@@ -84,6 +87,8 @@ class CodeBook(nn.Module):
         ]
         indices = torch.from_numpy(np.concatenate(indices))
         indices = indices.to(mlc_emb.device)
+        # indices = torch.min(distances, dim=-1)[1]
+
         print("#indices: ", len(indices.unique()))
         quantized = self.embedding(indices)
 

@@ -25,7 +25,6 @@ _C.solver.dvae_weight = 0.5
 
 _C.hidden_size = 768
 _C.image_size = 336
-_C.num_queries = 100
 _C.patch_mask_ratio = 1.0
 _C.patch_size = 16
 _C.layer_norm_eps = 1e-12

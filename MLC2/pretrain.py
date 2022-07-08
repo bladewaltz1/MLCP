@@ -7,6 +7,7 @@ import transformers
 from torch.nn.parallel import DistributedDataParallel
 
 from utils import get_rank, get_world_size, mkdir, synchronize
+from utils.amp import NativeScalerWithGradNormCount
 from utils.checkpointer import Checkpointer
 from utils.dataloader import make_data_loader
 from utils.logger import setup_logger
@@ -16,7 +17,8 @@ from MLC2.data import Dataset, collate_fn
 from MLC2.model import PretrainModel
 
 
-def train(cfg, model, optimizer, data_loader, scheduler, checkpointer):
+def train(cfg, model, optimizer, loss_scaler, data_loader, 
+          scheduler, checkpointer):
     logger = logging.getLogger("train")
     logger.info("Start training")
     model.train()
@@ -24,20 +26,19 @@ def train(cfg, model, optimizer, data_loader, scheduler, checkpointer):
     for epoch in range(cfg.start_epoch, cfg.epochs):
         if cfg.distributed:
             data_loader.batch_sampler.sampler.set_epoch(epoch)
+        optimizer.zero_grad()
 
         for iteration, batch in enumerate(data_loader):
             iteration = iteration + 1
             batch = [p.to(cfg.device) for p in batch]
 
-            loss_rec, loss_dvae = model(*batch)
-            loss = loss_rec * cfg.solver.rec_weight + \
-                   loss_dvae * cfg.solver.dvae_weight
+            with torch.cuda.amp.autocast():
+                loss_rec, loss_dvae = model(*batch)
+                loss = loss_rec * cfg.solver.rec_weight + \
+                    loss_dvae * cfg.solver.dvae_weight
 
+            loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
-            loss.backward()
-            # print(torch.norm(torch.stack([torch.norm(p.grad.detach(), 2)
-            #     for p in model.parameters() if p.grad is not None]), 2))
-            optimizer.step()
             scheduler.step()
 
             if iteration % cfg.log_time == 0:
@@ -89,9 +90,11 @@ if __name__ == "__main__":
                                   weight_decay=cfg.solver.weight_decay,
                                   betas=cfg.solver.betas)
 
+    loss_scaler = NativeScalerWithGradNormCount()
+
     num_gpus = get_world_size()
     iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
-    warmup_steps = iterations_per_epoch
+    warmup_steps = iterations_per_epoch * 2
     max_steps = cfg.epochs * iterations_per_epoch
     scheduler = transformers.get_cosine_schedule_with_warmup(
         optimizer=optimizer,
@@ -101,6 +104,7 @@ if __name__ == "__main__":
 
     checkpointer = Checkpointer(model=model,
                                 optimizer=optimizer,
+                                loss_scaler=loss_scaler,
                                 scheduler=scheduler,
                                 save_dir=save_dir,
                                 save_to_disk=get_rank() == 0,
@@ -123,6 +127,7 @@ if __name__ == "__main__":
     train(cfg=cfg,
           model=model,
           optimizer=optimizer,
+          loss_scaler=loss_scaler,
           data_loader=data_loader,
           scheduler=scheduler,
           checkpointer=checkpointer)
