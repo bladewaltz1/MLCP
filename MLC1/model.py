@@ -288,7 +288,7 @@ class PretrainModel(nn.Module):
         denoised_txt = self.token_head(denoised_txt_embeds[txt_mask])
         loss_txt_reconstruction = F.cross_entropy(denoised_txt, txt[txt_mask])
 
-        return {"loss_fine_contrastive": loss_fine_contrastive, 
-                "loss_coarse_contrastive": loss_coarse_contrastive,
-                "loss_img_reconstruction": loss_img_reconstruction, 
-                "loss_txt_reconstruction": loss_txt_reconstruction}
+        return {"loss_fctr": loss_fine_contrastive, 
+                "loss_cctr": loss_coarse_contrastive,
+                "loss_imgrec": loss_img_reconstruction, 
+                "loss_txtrec": loss_txt_reconstruction}
