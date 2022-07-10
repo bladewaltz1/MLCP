@@ -213,7 +213,7 @@ class PretrainModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, img, txt, pad_mask, img_mask, txt_mask):
+    def forward(self, img, txt, pad_mask, img_mask, txt_mask, queues):
         # image encoding
         output_ = self.img_encoder(img)
         img_hidden_states = output_.last_hidden_state
@@ -221,6 +221,11 @@ class PretrainModel(nn.Module):
         # image mlc decoding
         img_mlc, projected_img_mlc, averaged_img_mlc = self.img_decoder(
                                                       img_hidden_states)
+        # dequeue and enqueue
+        if len(queues["img"]) > self.cfg.queue_size:
+            queues["img"].pop(0)
+        averaged_img_mlc = torch.stack(queues["img"] + [averaged_img_mlc])
+        queues["img"] = queues["img"].append(averaged_img_mlc.detach())
 
         # text encoding
         output_ = self.txt_encoder(txt)
@@ -228,6 +233,11 @@ class PretrainModel(nn.Module):
         # text mlc decoding
         txt_mlc, projected_txt_mlc, averaged_txt_mlc = self.txt_decoder(
                                             txt_hidden_states, pad_mask)
+        # dequeue and enqueue
+        if len(queues["txt"]) > self.cfg.queue_size:
+            queues["txt"].pop(0)
+        averaged_txt_mlc = torch.stack(queues["txt"] + [averaged_txt_mlc])
+        queues["txt"] = queues["txt"].append(averaged_txt_mlc.detach())
 
         # LSA between projected_img_query and projected_txt_mlc
         indices = []
@@ -278,5 +288,7 @@ class PretrainModel(nn.Module):
         denoised_txt = self.token_head(denoised_txt_embeds[txt_mask])
         loss_txt_reconstruction = F.cross_entropy(denoised_txt, txt[txt_mask])
 
-        return loss_fine_contrastive, loss_coarse_contrastive, \
-               loss_img_reconstruction, loss_txt_reconstruction
+        return {"loss_fine_contrastive": loss_fine_contrastive, 
+                "loss_coarse_contrastive": loss_coarse_contrastive,
+                "loss_img_reconstruction": loss_img_reconstruction, 
+                "loss_txt_reconstruction": loss_txt_reconstruction}

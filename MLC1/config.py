@@ -33,6 +33,7 @@ _C.projection_dim = 512
 _C.token_mask_ratio = 0.75
 _C.vocab_size = 49408
 _C.initializer_range = 0.02
+_C.queue_size = 5
 
 _C.img_decoder_cfg = CN()
 _C.img_decoder_cfg.num_queries = 100
