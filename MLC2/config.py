@@ -12,6 +12,7 @@ _C.log_time = 20
 _C.distributed = True
 _C.samples_per_gpu = 32
 _C.num_workers = 8
+_C.warmup_epoches = 2
 
 _C.solver = CN()
 _C.solver.lr = 2.5e-4

@@ -94,7 +94,7 @@ if __name__ == "__main__":
 
     num_gpus = get_world_size()
     iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
-    warmup_steps = iterations_per_epoch * 2
+    warmup_steps = iterations_per_epoch * cfg.warmup_epoches
     max_steps = cfg.epochs * iterations_per_epoch
     scheduler = transformers.get_cosine_schedule_with_warmup(
         optimizer=optimizer,
