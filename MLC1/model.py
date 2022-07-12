@@ -32,8 +32,9 @@ def contrastive_loss(q, k, tau):
     # Einstein sum is more intuitive
     logits = torch.einsum("nc,mc->nm", [q, k]) / tau
     N = logits.shape[0]  # batch size per GPU
+    S = logits.shape[1] / torch.distributed.get_world_size() / N
     labels = (torch.arange(N, dtype=torch.long) + \
-              N * torch.distributed.get_rank()).cuda()
+              N * S * torch.distributed.get_rank()).cuda()
     return F.cross_entropy(logits, labels) / 2
 
 
