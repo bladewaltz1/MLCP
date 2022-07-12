@@ -9,6 +9,8 @@ from transformers.models.clip.modeling_clip import (
     CLIPTextConfig
 )
 
+from utils.transformer import TransformerDecoderLayer, TransformerDecoder
+
 
 @torch.no_grad()
 def concat_all_gather(tensor):
@@ -117,14 +119,14 @@ class MLCDecoder(nn.Module):
     def __init__(self, cfg, num_queries, projection_dim):
         super().__init__()
         self.mlc_embedding = nn.Embedding(num_queries, cfg.embed_dim)
-        decoder_layer = nn.TransformerDecoderLayer(cfg.embed_dim,
-                                                   cfg.nhead,
-                                                   cfg.ffn_dim,
-                                                   dropout=cfg.dropout,
-                                                   activation=F.gelu,
-                                                   batch_first=True,
-                                                   norm_first=False)
-        self.decoder = nn.TransformerDecoder(decoder_layer, cfg.num_layers)
+        decoder_layer = TransformerDecoderLayer(cfg.embed_dim,
+                                                cfg.nhead,
+                                                cfg.ffn_dim,
+                                                dropout=cfg.dropout,
+                                                activation=F.gelu,
+                                                batch_first=True,
+                                                norm_first=False)
+        self.decoder = TransformerDecoder(decoder_layer, cfg.num_layers)
         self.projection = nn.Linear(cfg.embed_dim, 
                                     projection_dim, 
                                     bias=False)
@@ -133,35 +135,35 @@ class MLCDecoder(nn.Module):
         bs = encoder_hidden_states.size(0)
         mlc_queries = self.mlc_embedding.weight[None]
         mlc_queries = mlc_queries.repeat(bs, 1, 1)
-        mlc_queries = self.decoder(tgt=mlc_queries,
-                                   memory=encoder_hidden_states,
-                                   memory_key_padding_mask=pad_mask)
+        mlc_queries, attn_weights = self.decoder(tgt=mlc_queries,
+                                                 memory=encoder_hidden_states,
+                                                 memory_key_padding_mask=pad_mask)
 
         projected = self.projection(mlc_queries)
         avg_projected = projected.mean(dim=1)
         projected = projected / projected.norm(dim=-1, keepdim=True)
         avg_projected = avg_projected / avg_projected.norm(dim=-1, keepdim=True)
 
-        return mlc_queries, projected, avg_projected
+        return mlc_queries, projected, avg_projected, attn_weights
 
 
 class DenoiseDecoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        decoder_layer = nn.TransformerDecoderLayer(cfg.embed_dim,
-                                                   cfg.nhead,
-                                                   cfg.ffn_dim,
-                                                   dropout=cfg.dropout,
-                                                   activation=F.gelu,
-                                                   batch_first=True,
-                                                   norm_first=False)
-        self.decoder = nn.TransformerDecoder(decoder_layer, cfg.num_layers)
+        decoder_layer = TransformerDecoderLayer(cfg.embed_dim,
+                                                cfg.nhead,
+                                                cfg.ffn_dim,
+                                                dropout=cfg.dropout,
+                                                activation=F.gelu,
+                                                batch_first=True,
+                                                norm_first=False)
+        self.decoder = TransformerDecoder(decoder_layer, cfg.num_layers)
 
     def forward(self, mlc_queries, masked_input, pad_mask=None):
-        denoised_output = self.decoder(tgt=masked_input,
-                                       memory=mlc_queries,
-                                       tgt_key_padding_mask=pad_mask)
-        return denoised_output
+        denoised_output, attn_weights = self.decoder(tgt=masked_input,
+                                                     memory=mlc_queries,
+                                                     tgt_key_padding_mask=pad_mask)
+        return denoised_output, attn_weights
 
 
 class PretrainModel(nn.Module):
@@ -219,25 +221,25 @@ class PretrainModel(nn.Module):
         img_hidden_states = output_.last_hidden_state
         img_hidden_states = self.img_encoder.post_layernorm(img_hidden_states)
         # image mlc decoding
-        img_mlc, projected_img_mlc, averaged_img_mlc = self.img_decoder(
-                                                      img_hidden_states)
+        img_mlc, projected_img_mlc, averaged_img_mlc, _ = self.img_decoder(
+                                                         img_hidden_states)
         # dequeue and enqueue
         if len(queues["img"]) > self.cfg.queue_size:
             queues["img"].pop(0)
-        averaged_img_mlc = torch.cat(queues["img"] + [averaged_img_mlc], dim=0)
         queues["img"] = queues["img"].append(averaged_img_mlc.detach())
+        queue_img = torch.cat(queues["img"], dim=0)
 
         # text encoding
         output_ = self.txt_encoder(txt)
         txt_hidden_states = output_.last_hidden_state
         # text mlc decoding
-        txt_mlc, projected_txt_mlc, averaged_txt_mlc = self.txt_decoder(
-                                            txt_hidden_states, pad_mask)
+        txt_mlc, projected_txt_mlc, averaged_txt_mlc, _ = self.txt_decoder(
+                                               txt_hidden_states, pad_mask)
         # dequeue and enqueue
         if len(queues["txt"]) > self.cfg.queue_size:
             queues["txt"].pop(0)
-        averaged_txt_mlc = torch.cat(queues["txt"] + [averaged_txt_mlc], dim=0)
         queues["txt"] = queues["txt"].append(averaged_txt_mlc.detach())
+        queue_txt = torch.cat(queues["txt"], dim=0)
 
         # LSA between projected_img_query and projected_txt_mlc
         indices = []
@@ -264,15 +266,15 @@ class PretrainModel(nn.Module):
 
         # contrastive loss between averaged mlc
         loss_coarse_contrastive = contrastive_loss(averaged_img_mlc, 
-                                                   averaged_txt_mlc,
+                                                   queue_txt,
                                                    self.logit_scale2) + \
                                   contrastive_loss(averaged_txt_mlc, 
-                                                   averaged_img_mlc,
+                                                   queue_img,
                                                    self.logit_scale2)
 
         # image reconstruction
         masked_img_embeds = self.img_embedding(img, img_mask)
-        denoised_img_embeds = self.pixel_decoder(txt_mlc, masked_img_embeds)
+        denoised_img_embeds, _ = self.pixel_decoder(txt_mlc, masked_img_embeds)
         denoised_img = self.pixel_head(denoised_img_embeds[img_mask])
         patches = patchify(img, self.cfg.patch_size)[img_mask]
         mean = patches.mean(dim=-1, keepdim=True)
@@ -282,9 +284,9 @@ class PretrainModel(nn.Module):
 
         # caption reconstruction
         masked_txt_embeds = self.txt_embedding(txt, txt_mask)
-        denoised_txt_embeds = self.token_decoder(img_mlc, 
-                                                 masked_txt_embeds, 
-                                                 pad_mask)
+        denoised_txt_embeds, _ = self.token_decoder(img_mlc, 
+                                                    masked_txt_embeds, 
+                                                    pad_mask)
         denoised_txt = self.token_head(denoised_txt_embeds[txt_mask])
         loss_txt_reconstruction = F.cross_entropy(denoised_txt, txt[txt_mask])
 

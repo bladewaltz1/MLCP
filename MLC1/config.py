@@ -33,7 +33,7 @@ _C.projection_dim = 512
 _C.token_mask_ratio = 0.75
 _C.vocab_size = 49408
 _C.initializer_range = 0.02
-_C.queue_size = 5
+_C.queue_size = 10
 
 _C.img_decoder_cfg = CN()
 _C.img_decoder_cfg.num_queries = 100
@@ -41,7 +41,7 @@ _C.img_decoder_cfg.embed_dim = 768
 _C.img_decoder_cfg.nhead = 12
 _C.img_decoder_cfg.ffn_dim = 3072
 _C.img_decoder_cfg.dropout = 0.0
-_C.img_decoder_cfg.num_layers = 6
+_C.img_decoder_cfg.num_layers = 3
 
 _C.txt_decoder_cfg = CN()
 _C.txt_decoder_cfg.num_queries = 100
@@ -49,7 +49,7 @@ _C.txt_decoder_cfg.embed_dim = 512
 _C.txt_decoder_cfg.nhead = 8
 _C.txt_decoder_cfg.ffn_dim = 2048
 _C.txt_decoder_cfg.dropout = 0.0
-_C.txt_decoder_cfg.num_layers = 6
+_C.txt_decoder_cfg.num_layers = 3
 
 _C.pixel_decoder_cfg = CN()
 _C.pixel_decoder_cfg.embed_dim = 512

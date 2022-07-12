@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
+from utils.transformer import TransformerDecoderLayer, TransformerDecoder
+
 
 def patchify(imgs, patch_size):
     h = w = imgs.shape[2] // patch_size
@@ -49,22 +51,22 @@ class MLCDecoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.mlc_embedding = nn.Embedding(cfg.num_queries, cfg.hidden_size)
-        decoder_layer = nn.TransformerDecoderLayer(cfg.hidden_size,
-                                                   cfg.nhead,
-                                                   cfg.ffn_dim,
-                                                   dropout=cfg.dropout,
-                                                   activation=F.gelu,
-                                                   batch_first=True,
-                                                   norm_first=False)
-        self.decoder = nn.TransformerDecoder(decoder_layer, cfg.num_layers)
+        decoder_layer = TransformerDecoderLayer(cfg.hidden_size,
+                                                cfg.nhead,
+                                                cfg.ffn_dim,
+                                                dropout=cfg.dropout,
+                                                activation=F.gelu,
+                                                batch_first=True,
+                                                norm_first=False)
+        self.decoder = TransformerDecoder(decoder_layer, cfg.num_layers)
 
     def forward(self, encoder_hidden_states):
         bs = encoder_hidden_states.size(0)
         mlc_queries = self.mlc_embedding.weight[None]
         mlc_queries = mlc_queries.repeat(bs, 1, 1)
-        mlc_queries = self.decoder(tgt=mlc_queries,
-                                   memory=encoder_hidden_states)
-        return mlc_queries
+        mlc_queries, attn_weights = self.decoder(tgt=mlc_queries,
+                                                 memory=encoder_hidden_states)
+        return mlc_queries, attn_weights
 
 
 class CodeBook(nn.Module):
@@ -103,21 +105,21 @@ class CodeBook(nn.Module):
 class DenoiseDecoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        decoder_layer = nn.TransformerDecoderLayer(cfg.hidden_size,
-                                                   cfg.nhead,
-                                                   cfg.ffn_dim,
-                                                   dropout=cfg.dropout,
-                                                   activation=F.gelu,
-                                                   batch_first=True,
-                                                   norm_first=True)
-        self.decoder = nn.TransformerDecoder(decoder_layer, cfg.num_layers)
+        decoder_layer = TransformerDecoderLayer(cfg.hidden_size,
+                                                cfg.nhead,
+                                                cfg.ffn_dim,
+                                                dropout=cfg.dropout,
+                                                activation=F.gelu,
+                                                batch_first=True,
+                                                norm_first=True)
+        self.decoder = TransformerDecoder(decoder_layer, cfg.num_layers)
         self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
 
     def forward(self, mlc_queries, masked_input):
-        denoised_output = self.decoder(tgt=masked_input,
-                                       memory=mlc_queries)
+        denoised_output, attn_weights = self.decoder(tgt=masked_input,
+                                                     memory=mlc_queries)
         denoised_output = self.layernorm(denoised_output)
-        return denoised_output
+        return denoised_output, attn_weights
 
 
 class PretrainModel(nn.Module):
@@ -156,14 +158,14 @@ class PretrainModel(nn.Module):
         hidden_states = self.layernorm(hidden_states)
 
         # image mlc decoding
-        mlc_emb = self.mlc_decoder(hidden_states)
+        mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # quantization
         quantized, loss_dvae = self.codebook(mlc_emb)
 
         # image reconstruction
         masked_patch_embs = self.patch_embedding(img, mask)
-        denoised_patch_embs = self.pixel_decoder(quantized, masked_patch_embs)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_patch_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
         target_patches = patchify(img, self.cfg.patch_size)[mask]
         mean = target_patches.mean(dim=-1, keepdim=True)
