@@ -90,8 +90,8 @@ class CodeBook(nn.Module):
         indices = torch.from_numpy(np.concatenate(indices))
         indices = indices.to(mlc_emb.device)
         # indices = torch.min(distances, dim=-1)[1]
+        # print("#indices: ", len(indices.unique()))
 
-        print("#indices: ", len(indices.unique()))
         quantized = self.embedding(indices)
 
         q_latent_loss = F.mse_loss(mlc_emb.detach(), quantized)
@@ -99,7 +99,7 @@ class CodeBook(nn.Module):
         loss = q_latent_loss + self.commitment_cost * e_latent_loss
         quantized = mlc_emb + (quantized - mlc_emb).detach()
 
-        return quantized.view(bs, seq_len, hidden_size), loss
+        return quantized.view(bs, seq_len, hidden_size), loss, indices
 
 
 class DenoiseDecoder(nn.Module):
@@ -161,7 +161,7 @@ class PretrainModel(nn.Module):
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # quantization
-        quantized, loss_dvae = self.codebook(mlc_emb)
+        quantized, loss_dvae ,indices = self.codebook(mlc_emb)
 
         # image reconstruction
         masked_patch_embs = self.patch_embedding(img, mask)
@@ -173,4 +173,4 @@ class PretrainModel(nn.Module):
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
         loss_reconstruction = F.mse_loss(denoised_patches, target_patches)
 
-        return loss_reconstruction, loss_dvae
+        return loss_reconstruction, loss_dvae, indices
