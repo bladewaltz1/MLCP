@@ -226,7 +226,7 @@ class PretrainModel(nn.Module):
         # dequeue and enqueue
         if len(queues["img"]) > self.cfg.queue_size:
             queues["img"].pop(0)
-        queues["img"] = queues["img"].append(averaged_img_mlc.detach())
+        queues["img"].append(averaged_img_mlc.detach())
         queue_img = torch.cat(queues["img"], dim=0)
 
         # text encoding
@@ -238,7 +238,7 @@ class PretrainModel(nn.Module):
         # dequeue and enqueue
         if len(queues["txt"]) > self.cfg.queue_size:
             queues["txt"].pop(0)
-        queues["txt"] = queues["txt"].append(averaged_txt_mlc.detach())
+        queues["txt"].append(averaged_txt_mlc.detach())
         queue_txt = torch.cat(queues["txt"], dim=0)
 
         # LSA between projected_img_query and projected_txt_mlc
