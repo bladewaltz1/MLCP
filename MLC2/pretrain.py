@@ -12,9 +12,9 @@ from utils.checkpointer import Checkpointer
 from utils.dataloader import make_data_loader
 from utils.logger import setup_logger
 
-from MLC2.config import _C as cfg
-from MLC2.data import Dataset, collate_fn
-from MLC2.model import PretrainModel
+from config import _C as cfg
+from data import Dataset, collate_fn
+from model import PretrainModel
 
 
 def train(cfg, model, optimizer, loss_scaler, data_loader, 
