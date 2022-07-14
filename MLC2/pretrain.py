@@ -1,3 +1,12 @@
+import sys
+try:
+    import hf_env
+    hf_env.set_env('202111')
+    sys.path.insert(0, '/ceph-jd/pub/jupyter/maoweian/notebooks/code/self-supervise/mae/env')
+except:
+    pass
+
+
 import argparse
 import logging
 import os
@@ -61,9 +70,13 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
         checkpointer.save("last_checkpoint")
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="train")
     parser.add_argument("--local_rank", type=int, default=0)
+
+    parser.add_argument("--hfai_enable", default=False, type=bool,
+                        help='whether use hfai cluster')
+
     parser.add_argument("--config-file", default="", metavar="FILE")
     parser.add_argument("--load-last-checkpoint", action="store_true")
     parser.add_argument("opts", default=None, nargs=argparse.REMAINDER)
@@ -86,7 +99,37 @@ if __name__ == "__main__":
     model = PretrainModel(cfg)
     model = model.to(cfg.device)
 
-    dataset = Dataset(cfg)
+    if args.hfai_enable:
+        import pickle
+        import torchvision.transforms as transforms
+
+        transform = transforms.Compose([
+            transforms.RandomResizedCrop(cfg.image_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        from ffrecord.torch import Dataset, DataLoader
+        class FireFlyerImageNet(Dataset):
+            def __init__(self, fnames, transform=None):
+                super(FireFlyerImageNet, self).__init__(fnames, check_data=True)
+                self.transform = transform
+
+            def process(self, indexes, data):
+                samples = []
+
+                for bytes_ in data:
+                    img, label = pickle.loads(bytes_)
+                    if self.transform:
+                        img = self.transform(img)
+                    samples.append((img, label))
+
+                # default collate_fn would handle them
+                return samples
+        dataset = FireFlyerImageNet('/public_dataset/1/ImageNet/train.ffr', transform=transform)
+    else:
+        dataset = Dataset(cfg)
 
     optimizer = torch.optim.AdamW(params=model.parameters(),
                                   lr=cfg.solver.lr,
@@ -117,12 +160,31 @@ if __name__ == "__main__":
         if os.path.exists(path):
             checkpointer.load(path)
 
-    data_loader = make_data_loader(dataset=dataset,
-                                   collate_fn=collate_fn,
-                                   batch_size=cfg.samples_per_gpu,
-                                   num_workers=cfg.num_workers,
-                                   shuffle=True,
-                                   is_distributed=cfg.distributed)
+
+    if args.hfai_enable:
+        if args.distributed:
+            num_tasks = get_world_size()
+            global_rank = get_rank()
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
+            print("Sampler_train = %s" % str(sampler_train))
+        else:
+            sampler_train = torch.utils.data.RandomSampler(dataset)
+
+        data_loader = DataLoader(dataset,
+                                 cfg.samples_per_gpu,
+                                 sampler=sampler_train,
+                                 num_workers=cfg.num_workers,
+                                 pin_memory=True,
+                                 drop_last=True)
+    else:
+        data_loader = make_data_loader(dataset=dataset,
+                                       collate_fn=collate_fn,
+                                       batch_size=cfg.samples_per_gpu,
+                                       num_workers=cfg.num_workers,
+                                       shuffle=True,
+                                       is_distributed=cfg.distributed)
 
     if cfg.distributed:
         model = DistributedDataParallel(module=model,
@@ -136,3 +198,20 @@ if __name__ == "__main__":
           data_loader=data_loader,
           scheduler=scheduler,
           checkpointer=checkpointer)
+
+
+if __name__ == "__main__":
+    from detectron2.engine import launch
+    ip = os.environ['MASTER_IP']
+    port = os.environ['MASTER_PORT']
+    hosts = int(os.environ['WORLD_SIZE'])  # 机器个数
+    rank = int(os.environ['RANK'])  # 当前机器编号
+    gpus = torch.cuda.device_count()  # 每台机器的GPU个数
+
+    launch(
+        main,
+        gpus,
+        num_machines=hosts,
+        machine_rank=rank,
+        dist_url=f'tcp://{ip}:{port}',
+    )

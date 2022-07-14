@@ -5,7 +5,6 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from transformers import ViTFeatureExtractor
-from torchvision.datasets import ImageNet
 
 
 def random_crop(image):

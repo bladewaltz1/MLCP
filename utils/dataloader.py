@@ -16,5 +16,6 @@ def make_data_loader(dataset, batch_size, num_workers, shuffle,
     data_loader = torch.utils.data.DataLoader(dataset, 
                                               num_workers=num_workers,
                                               batch_sampler=batch_sampler, 
+                                              pin_memory=True,
                                               collate_fn=collate_fn)
     return data_loader
