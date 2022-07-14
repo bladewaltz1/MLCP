@@ -5,6 +5,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from transformers import ViTFeatureExtractor
+from torchvision.datasets import ImageNet
 
 
 def random_crop(image):
@@ -37,9 +38,11 @@ def random_flip(image):
 
 class Dataset(Dataset):
     def __init__(self, cfg):
-        database = os.listdir(cfg.data_dir)
-        self.database = [os.path.join(cfg.data_dir, item) 
-                         for item in database]
+        database = []
+        for path, _, files in os.walk(cfg.data_dir):
+            for name in files:
+                database.append(os.path.join(path, name))
+        self.database = database
 
         self.transform = ViTFeatureExtractor(
             do_resize=True,

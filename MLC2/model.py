@@ -5,15 +5,8 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
+from utils import patchify
 from utils.transformer import TransformerDecoderLayer, TransformerDecoder
-
-
-def patchify(imgs, patch_size):
-    h = w = imgs.shape[2] // patch_size
-    x = imgs.reshape(shape=(imgs.shape[0], 3, h, patch_size, w, patch_size))
-    x = torch.einsum('nchpwq->nhwpqc', x)
-    x = x.reshape(shape=(imgs.shape[0], h * w, patch_size**2 * 3))
-    return x
 
 
 class ImageEmbeddingsWithMask(nn.Module):
@@ -161,7 +154,7 @@ class PretrainModel(nn.Module):
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # quantization
-        quantized, loss_dvae ,indices = self.codebook(mlc_emb)
+        quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
         # image reconstruction
         masked_patch_embs = self.patch_embedding(img, mask)
