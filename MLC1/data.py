@@ -88,6 +88,9 @@ validation_datasets = {
     },
 }
 
+frequent_words = "in this image picture I we can see a here there this is . \
+                  the <|startoftext|> , <|endoftext|>"
+
 
 def build_openimage(ann_paths, img_dirs):
     output = []
@@ -225,6 +228,10 @@ class Dataset(Dataset):
         self.tokenizer.model_max_length = cfg.max_position_embeddings
         self.cfg = cfg
 
+        self.balance_weight = torch.ones(self.cfg.vocab_size)
+        downweight = self.tokenizer.encode(frequent_words)
+        self.balance_weight[downweight] = self.cfg.balance_weight
+
     def __getitem__(self, index):
         image = Image.open(self.database[index]["image_path"])
         image = image.convert("RGB")
@@ -247,7 +254,8 @@ class Dataset(Dataset):
         token_mask[0] = 0
         token_mask[-1] = 0
 
-        return pixels, tokens, patch_mask.bool(), token_mask.bool()
+        return pixels, tokens, patch_mask.bool(), token_mask.bool(), \
+               self.balance_weight
 
     def __len__(self):
         return len(self.database)
@@ -264,4 +272,4 @@ def collate_fn(batch):
     batch_token_mask = pad_sequence(batch[3], batch_first=True, padding_value=0)
 
     return batch_pixels, batch_tokens, padding_mask, batch_patch_mask, \
-           batch_token_mask
+           batch_token_mask, batch[4][0]

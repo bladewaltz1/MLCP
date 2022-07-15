@@ -10,17 +10,17 @@ _C.epochs = 100
 _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
-_C.samples_per_gpu = 16
-_C.num_workers = 4
+_C.samples_per_gpu = 32
+_C.num_workers = 8
 
 _C.solver = CN()
-_C.solver.lr = 2.5e-4
+_C.solver.lr = 1e-4
 _C.solver.weight_decay = 5e-2
 _C.solver.betas = (0.9, 0.97)
-_C.solver.fctr_weight = 1.0
-_C.solver.cctr_weight = 1.0
+_C.solver.ctr_weight = 1.0
 _C.solver.imgrec_weight = 4.0
 _C.solver.txtrec_weight = 1.0
+_C.solver.reg_weight = 1.0
 
 _C.clip_config = "openai/clip-vit-base-patch16"
 _C.image_size = 336
@@ -33,7 +33,7 @@ _C.projection_dim = 512
 _C.token_mask_ratio = 0.75
 _C.vocab_size = 49408
 _C.initializer_range = 0.02
-_C.queue_size = 10
+_C.balance_weight = 0.25
 
 _C.img_decoder_cfg = CN()
 _C.img_decoder_cfg.num_queries = 100

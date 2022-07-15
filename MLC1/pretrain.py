@@ -21,7 +21,6 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
           scheduler, checkpointer):
     logger = logging.getLogger("train")
     logger.info("Start training")
-    queues = {"img": [], "txt": []}
     model.train()
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
@@ -34,11 +33,11 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             batch = [p.to(cfg.device) for p in batch]
 
             with torch.cuda.amp.autocast():
-                loss_dict = model(*batch, queues=queues)
-                loss = loss_dict["loss_fctr"] * cfg.solver.fctr_weight + \
-                       loss_dict["loss_cctr"] * cfg.solver.cctr_weight + \
+                loss_dict = model(*batch)
+                loss = loss_dict["loss_ctr"] * cfg.solver.ctr_weight + \
                        loss_dict["loss_imgrec"] * cfg.solver.imgrec_weight + \
-                       loss_dict["loss_txtrec"] * cfg.solver.txtrec_weight
+                       loss_dict["loss_txtrec"] * cfg.solver.txtrec_weight + \
+                       loss_dict["loss_reg"] * cfg.solver.reg_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -48,15 +47,15 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                 logger.info(
                     "  ".join([
                         "iter: {iter}", 
-                        "loss_fctr: {loss_fctr:.4f}", 
-                        "loss_cctr: {loss_cctr:.4f}",
+                        "loss_ctr: {loss_ctr:.4f}", 
+                        "loss_reg: {loss_reg:.4f}", 
                         "loss_imgrec: {loss_imgrec:.4f}", 
                         "loss_txtrec: {loss_txtrec:.4f}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
-                        loss_fctr=loss_dict["loss_fctr"], 
-                        loss_cctr=loss_dict["loss_cctr"], 
+                        loss_ctr=loss_dict["loss_ctr"], 
+                        loss_reg=loss_dict["loss_reg"], 
                         loss_imgrec=loss_dict["loss_imgrec"], 
                         loss_txtrec=loss_dict["loss_txtrec"], 
                         lr=optimizer.param_groups[0]["lr"],
