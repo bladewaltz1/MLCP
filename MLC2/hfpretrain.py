@@ -2,7 +2,7 @@ import sys
 try:
     import hf_env
     hf_env.set_env('202111')
-    sys.path.insert(0, '/ceph-jd/pub/jupyter/maoweian/notebooks/code/self-supervise/mae/env')
+    sys.path.insert(0, '/ceph-jd/pub/jupyter/maoweian/notebooks/code/self-supervise/mlcp/env')
 except:
     pass
 
@@ -24,6 +24,7 @@ from utils.logger import setup_logger
 from config import _C as cfg
 from data import Dataset, collate_fn
 from model import PretrainModel
+from detectron2.utils.comm import get_local_rank
 
 
 def train(cfg, model, optimizer, loss_scaler, data_loader, 
@@ -33,16 +34,14 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
     model.train()
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
-        if cfg.distributed:
-            data_loader.batch_sampler.sampler.set_epoch(epoch)
         optimizer.zero_grad()
 
         for iteration, batch in enumerate(data_loader):
             iteration = iteration + 1
             batch = [p.to(cfg.device) for p in batch]
 
-            with torch.cuda.amp.autocast():
-                loss_rec, loss_dvae, indices = model(*batch)
+            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                loss_rec, loss_dvae, indices = model(batch[0])
                 loss = loss_rec * cfg.solver.rec_weight + \
                     loss_dvae * cfg.solver.dvae_weight
 
@@ -74,8 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description="train")
     parser.add_argument("--local_rank", type=int, default=0)
 
-    parser.add_argument("--hfai_enable", default=False, type=bool,
-                        help='whether use hfai cluster')
+    parser.add_argument("--hfai_enable", action="store_true")
 
     parser.add_argument("--config-file", default="", metavar="FILE")
     parser.add_argument("--load-last-checkpoint", action="store_true")
@@ -86,10 +84,7 @@ def main():
     cfg.merge_from_list(args.opts)
     cfg.freeze()
 
-    if cfg.distributed:
-        torch.cuda.set_device(args.local_rank)
-        torch.distributed.init_process_group("nccl", init_method="env://")
-        synchronize()
+    args.local_rank = get_local_rank()
 
     save_dir = os.path.join(cfg.save_dir, f"train")
     mkdir(save_dir)
@@ -162,7 +157,7 @@ def main():
 
 
     if args.hfai_enable:
-        if args.distributed:
+        if cfg.distributed:
             num_tasks = get_world_size()
             global_rank = get_rank()
             sampler_train = torch.utils.data.DistributedSampler(

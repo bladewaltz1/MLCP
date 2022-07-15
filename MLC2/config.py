@@ -6,7 +6,7 @@ _C.model_path = ""
 _C.data_dir = ""
 
 _C.start_epoch = 0
-_C.epochs = 100
+_C.epochs = 400
 _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
@@ -38,7 +38,7 @@ _C.mlc_decoder_cfg.hidden_size = 768
 _C.mlc_decoder_cfg.nhead = 12
 _C.mlc_decoder_cfg.ffn_dim = 3072
 _C.mlc_decoder_cfg.dropout = 0.0
-_C.mlc_decoder_cfg.num_layers = 3 # TODO
+_C.mlc_decoder_cfg.num_layers = 6 # TODO
 
 _C.pixel_decoder_cfg = CN()
 _C.pixel_decoder_cfg.hidden_size = 768

@@ -143,7 +143,7 @@ class PretrainModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, img, mask):
+    def forward(self, img):
         # image encoding
         patch_emb = self.patch_embedding(img)
         encoder_output = self.encoder(patch_emb)
@@ -157,6 +157,7 @@ class PretrainModel(nn.Module):
         quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
         # image reconstruction
+        mask = mlc_emb.new_ones(patch_emb.shape[:2]).bool()
         masked_patch_embs = self.patch_embedding(img, mask)
         denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_patch_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
