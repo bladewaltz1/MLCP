@@ -1,3 +1,4 @@
+from math import dist
 import numpy as np
 import torch
 import torch.nn as nn
@@ -129,6 +130,11 @@ class PretrainModel(nn.Module):
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
                                     bias=True)
+
+        num_queries = cfg.mlc_decoder_cfg.num_queries
+        identity_mat = torch.diag(torch.ones(num_queries))[None]
+        self.register_buffer("identity_mat", identity_mat)
+
         self.cfg = cfg
         self.apply(self._init_weights)
 
@@ -153,6 +159,12 @@ class PretrainModel(nn.Module):
         # image mlc decoding
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
+        # orthogonal regularization
+        normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
+        identity_mat = self.identity_mat.repeat(normalized.size(0), 1, 1)
+        loss_reg = F.mse_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
+                              identity_mat)
+
         # quantization
         quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
@@ -164,6 +176,6 @@ class PretrainModel(nn.Module):
         mean = target_patches.mean(dim=-1, keepdim=True)
         var = target_patches.var(dim=-1, keepdim=True)
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
-        loss_reconstruction = F.mse_loss(denoised_patches, target_patches)
+        loss_rec = F.mse_loss(denoised_patches, target_patches)
 
-        return loss_reconstruction, loss_dvae, indices
+        return loss_rec, loss_dvae, loss_reg, indices
