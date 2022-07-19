@@ -11,6 +11,7 @@ from utils.amp import NativeScalerWithGradNormCount
 from utils.checkpointer import Checkpointer
 from utils.dataloader import make_data_loader
 from utils.logger import setup_logger
+from utils.visualizer import Visualizer
 
 from MLC1.config import _C as cfg
 from MLC1.data import Dataset, collate_fn
@@ -22,6 +23,9 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
     logger = logging.getLogger("train")
     logger.info("Start training")
     model.train()
+
+    # visualization tool
+    vistool = Visualizer(writer_name="mlc_visualized")
 
     for epoch in range(cfg.start_epoch, cfg.epochs):
         if cfg.distributed:
@@ -38,6 +42,10 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                        loss_dict["loss_imgrec"] * cfg.solver.imgrec_weight + \
                        loss_dict["loss_txtrec"] * cfg.solver.txtrec_weight + \
                        loss_dict["loss_reg"] * cfg.solver.reg_weight
+
+                # get image and text mlc features
+                projected_img_mlc = loss_dict["projected_img_mlc"]
+                projected_txt_mlc = loss_dict["projected_txt_mlc"]
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -60,6 +68,9 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         loss_txtrec=loss_dict["loss_txtrec"], 
                         lr=optimizer.param_groups[0]["lr"],
                     ))
+            if iteration % 100 == 0:
+                # visualize
+                vistool.mlc_visual(projected_img_mlc, projected_txt_mlc, iteration)
 
         checkpointer.save("model_{:04d}".format(epoch))
 

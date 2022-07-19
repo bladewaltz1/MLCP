@@ -271,7 +271,13 @@ class PretrainModel(nn.Module):
                                                   txt[txt_mask], 
                                                   weight=balance_weight)
 
+        # return {"loss_ctr": loss_contrastive, 
+        #         "loss_reg": img_reg + txt_reg,
+        #         "loss_imgrec": loss_img_reconstruction, 
+        #         "loss_txtrec": loss_txt_reconstruction}
         return {"loss_ctr": loss_contrastive, 
                 "loss_reg": img_reg + txt_reg,
                 "loss_imgrec": loss_img_reconstruction, 
-                "loss_txtrec": loss_txt_reconstruction}
+                "loss_txtrec": loss_txt_reconstruction,
+                "projected_img_mlc": projected_img_mlc,
+                "projected_txt_mlc": projected_txt_mlc}
