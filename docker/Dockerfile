@@ -6,4 +6,7 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip
 
 RUN python3 -m pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu116
 
-RUN python3 -m pip install transformers yacs scipy
+RUN python3 -m pip install transformers yacs scipy gsutil
+
+RUN apt update && apt install -y unzip wget zip git vim --fix-missing
+

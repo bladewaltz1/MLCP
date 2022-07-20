@@ -1,9 +1,10 @@
+import io
 import os
 import random
+import zipfile
 from PIL import Image
 
 import torch
-from torch.utils.data import Dataset
 from transformers import ViTFeatureExtractor
 
 
@@ -35,7 +36,7 @@ def random_flip(image):
     return image
 
 
-class Dataset(Dataset):
+class Dataset(torch.utils.data.Dataset):
     def __init__(self, cfg):
         database = []
         for path, _, files in os.walk(cfg.data_dir):
@@ -53,6 +54,44 @@ class Dataset(Dataset):
 
     def __getitem__(self, index):
         image = Image.open(self.database[index])
+        image = image.convert("RGB")
+        image = random_crop(image)
+        image = random_flip(image)
+        pixel_values = self.transform(image, return_tensors="pt").pixel_values
+
+        num_patches = (self.cfg.image_size // self.cfg.patch_size) ** 2
+        num_masked_patches = int(num_patches * self.cfg.patch_mask_ratio)
+        _, masked_indices = torch.rand(num_patches).topk(num_masked_patches)
+        patch_mask = torch.zeros(num_patches, dtype=torch.long)
+        patch_mask[masked_indices] = 1
+
+        return pixel_values, patch_mask.bool()
+
+    def __len__(self):
+        return len(self.database)
+
+
+class ZipDatasetUnsafe(torch.utils.data.Dataset):
+    def __init__(self, cfg):
+        zipdata = zipfile.ZipFile(cfg.zipfile, "r")
+        database = zipdata.namelist()
+        database = [item for item in database if ".jpg" in item]
+        self.zipdata = zipdata
+        self.database = database
+
+        self.transform = ViTFeatureExtractor(
+            do_resize=True,
+            size=(cfg.image_size, cfg.image_size),
+            do_center_crop=False,
+            do_normalize=True
+        )
+        self.cfg = cfg
+
+    def __getitem__(self, index):
+        filename = self.database[index]
+        image_raw = self.zipdata.read(filename)
+
+        image = Image.open(io.BytesIO(image_raw))
         image = image.convert("RGB")
         image = random_crop(image)
         image = random_flip(image)
