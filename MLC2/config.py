@@ -4,6 +4,7 @@ _C = CN()
 _C.save_dir = "output/mlc2/"
 _C.model_path = ""
 _C.data_dir = "datasets/OpenImage/train/"
+_C.zipfile = "datasets/OpenImage.zip"
 
 _C.start_epoch = 0
 _C.epochs = 100
