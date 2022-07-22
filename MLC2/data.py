@@ -71,7 +71,7 @@ class Dataset(torch.utils.data.Dataset):
         return len(self.database)
 
 
-class ZipDatasetUnsafe(torch.utils.data.Dataset):
+class ZipDataset(torch.utils.data.Dataset):
     def __init__(self, cfg):
         zipdata = ZipFile(cfg.zipfile, "r")
         database = zipdata.namelist()
