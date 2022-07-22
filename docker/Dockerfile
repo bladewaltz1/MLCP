@@ -8,5 +8,5 @@ RUN python3 -m pip install torch torchvision --extra-index-url https://download.
 
 RUN python3 -m pip install transformers yacs scipy gsutil
 
-RUN apt update && apt install -y unzip wget zip git vim --fix-missing
+RUN apt update && apt install -y unzip wget zip git vim tmux --fix-missing
 

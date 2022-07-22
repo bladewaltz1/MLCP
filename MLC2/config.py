@@ -11,8 +11,8 @@ _C.epochs = 100
 _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
-_C.samples_per_gpu = 32
-_C.num_workers = 8
+_C.samples_per_gpu = 64
+_C.num_workers = 4
 _C.warmup_epoches = 2
 
 _C.solver = CN()
@@ -22,10 +22,10 @@ _C.solver.betas = (0.9, 0.97)
 _C.solver.dvae_weight = 0.5
 _C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0
-_C.solver.reg_weight = 0.02
+_C.solver.reg_weight = 0.01
 
 _C.hidden_size = 768
-_C.image_size = 336
+_C.image_size = 256
 _C.patch_mask_ratio = 1.0
 _C.patch_size = 16
 _C.layer_norm_eps = 1e-12
@@ -38,7 +38,7 @@ _C.mlc_decoder_cfg.hidden_size = 768
 _C.mlc_decoder_cfg.nhead = 12
 _C.mlc_decoder_cfg.ffn_dim = 3072
 _C.mlc_decoder_cfg.dropout = 0.0
-_C.mlc_decoder_cfg.num_layers = 3 # TODO
+_C.mlc_decoder_cfg.num_layers = 6 # TODO
 
 _C.pixel_decoder_cfg = CN()
 _C.pixel_decoder_cfg.hidden_size = 768

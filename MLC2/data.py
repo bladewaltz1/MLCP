@@ -1,8 +1,8 @@
 import io
 import os
 import random
-import zipfile
 from PIL import Image
+from utils.parallelzipfile import ParallelZipFile as ZipFile
 
 import torch
 from transformers import ViTFeatureExtractor
@@ -11,12 +11,12 @@ from transformers import ViTFeatureExtractor
 def random_crop(image):
     w, h = image.size
     if w > h:
-        crop_ratio_w = random.uniform(0.5, 1)
+        crop_ratio_w = random.uniform(0.6, 1)
         crop_w = w * crop_ratio_w
         crop_ratio_h = random.uniform(crop_ratio_w, 1)
         crop_h = h * crop_ratio_h
     else:
-        crop_ratio_h = random.uniform(0.5, 1)
+        crop_ratio_h = random.uniform(0.6, 1)
         crop_h = h * crop_ratio_h
         crop_ratio_w = random.uniform(crop_ratio_h, 1)
         crop_w = w * crop_ratio_w
@@ -73,7 +73,7 @@ class Dataset(torch.utils.data.Dataset):
 
 class ZipDatasetUnsafe(torch.utils.data.Dataset):
     def __init__(self, cfg):
-        zipdata = zipfile.ZipFile(cfg.zipfile, "r")
+        zipdata = ZipFile(cfg.zipfile, "r")
         database = zipdata.namelist()
         database = [item for item in database if ".jpg" in item]
         self.zipdata = zipdata
