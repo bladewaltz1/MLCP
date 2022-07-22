@@ -124,7 +124,11 @@ class PretrainModel(nn.Module):
                                 patch_size=cfg.patch_size)
         self.encoder = ViTEncoder(encoder_cfg)
         self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
+        self.projection1 = nn.Linear(cfg.hidden_size, 
+                                     cfg.mlc_decoder_cfg.hidden_size)
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
+        self.projection2 = nn.Linear(cfg.mlc_decoder_cfg.hidden_size,
+                                     cfg.hidden_size)
         self.codebook = CodeBook(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
@@ -157,16 +161,18 @@ class PretrainModel(nn.Module):
         hidden_states = self.layernorm(hidden_states)
 
         # image mlc decoding
+        hidden_states = self.projection1(hidden_states)
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # orthogonal regularization
-        normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
+        projected_mlc = self.projection2(mlc_emb)
+        normalized = projected_mlc / projected_mlc.norm(dim=-1, keepdim=True)
         identity_mat = self.identity_mat.repeat(normalized.size(0), 1, 1)
         loss_reg = F.mse_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
                               identity_mat)
 
         # quantization
-        quantized, loss_dvae, indices = self.codebook(mlc_emb)
+        quantized, loss_dvae, indices = self.codebook(projected_mlc)
 
         # image reconstruction
         masked_patch_embs = self.patch_embedding(img, mask)

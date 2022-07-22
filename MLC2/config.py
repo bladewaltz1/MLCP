@@ -34,11 +34,11 @@ _C.initializer_range = 0.02
 
 _C.mlc_decoder_cfg = CN()
 _C.mlc_decoder_cfg.num_queries = 100
-_C.mlc_decoder_cfg.hidden_size = 768
-_C.mlc_decoder_cfg.nhead = 12
-_C.mlc_decoder_cfg.ffn_dim = 3072
+_C.mlc_decoder_cfg.hidden_size = 256
+_C.mlc_decoder_cfg.nhead = 8
+_C.mlc_decoder_cfg.ffn_dim = 2048
 _C.mlc_decoder_cfg.dropout = 0.0
-_C.mlc_decoder_cfg.num_layers = 6 # TODO
+_C.mlc_decoder_cfg.num_layers = 6
 
 _C.pixel_decoder_cfg = CN()
 _C.pixel_decoder_cfg.hidden_size = 768
