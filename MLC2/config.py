@@ -41,8 +41,8 @@ _C.mlc_decoder_cfg.dropout = 0.0
 _C.mlc_decoder_cfg.num_layers = 6
 
 _C.pixel_decoder_cfg = CN()
-_C.pixel_decoder_cfg.hidden_size = 768
-_C.pixel_decoder_cfg.nhead = 12
-_C.pixel_decoder_cfg.ffn_dim = 3072
+_C.pixel_decoder_cfg.hidden_size = 256
+_C.pixel_decoder_cfg.nhead = 8
+_C.pixel_decoder_cfg.ffn_dim = 2048
 _C.pixel_decoder_cfg.dropout = 0.0
 _C.pixel_decoder_cfg.num_layers = 2

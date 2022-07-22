@@ -10,7 +10,7 @@ from utils import patchify
 from utils.transformer import TransformerDecoderLayer, TransformerDecoder
 
 
-class ImageEmbeddingsWithMask(nn.Module):
+class ImageEmbeddings(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.patch_embedding = nn.Conv2d(in_channels=3, 
@@ -24,20 +24,24 @@ class ImageEmbeddingsWithMask(nn.Module):
         position_ids = torch.arange(num_patches).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
-        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, cfg.hidden_size]))
-        torch.nn.init.normal_(self.mask_embedding, std=0.02)
-
-    def forward(self, pixel_values, mask=None):
+    def forward(self, pixel_values):
         patch_embeds = self.patch_embedding(pixel_values)
         patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-
-        if mask is not None:
-            # patch_embeds[mask] = self.mask_embedding
-            mask = mask.to(torch.float32).unsqueeze(-1)
-            patch_embeds = patch_embeds * (1 - mask) + \
-                           self.mask_embedding * mask
-
         embeddings = patch_embeds + self.position_embedding(self.position_ids)
+        return embeddings
+
+
+class PositionEmbeddings(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        num_patches = (cfg.image_size // cfg.patch_size) ** 2
+        self.position_embedding = nn.Embedding(num_patches,
+                                               cfg.pixel_decoder_cfg.hidden_size)
+        position_ids = torch.arange(num_patches).expand((1, -1))
+        self.register_buffer("position_ids", position_ids)
+
+    def forward(self):
+        embeddings = self.position_embedding(self.position_ids)
         return embeddings
 
 
@@ -66,7 +70,8 @@ class MLCDecoder(nn.Module):
 class CodeBook(nn.Module):
     def __init__(self, cfg):
         super(CodeBook, self).__init__()
-        self.embedding = nn.Embedding(cfg.num_codes, cfg.hidden_size)
+        self.embedding = nn.Embedding(cfg.num_codes, 
+                                      cfg.mlc_decoder_cfg.hidden_size)
         self.commitment_cost = cfg.solver.commitment_cost
 
     def forward(self, mlc_emb):
@@ -119,7 +124,7 @@ class DenoiseDecoder(nn.Module):
 class PretrainModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.patch_embedding = ImageEmbeddingsWithMask(cfg)
+        self.patch_embedding = ImageEmbeddings(cfg)
         encoder_cfg = ViTConfig(image_size=cfg.image_size,
                                 patch_size=cfg.patch_size)
         self.encoder = ViTEncoder(encoder_cfg)
@@ -127,9 +132,9 @@ class PretrainModel(nn.Module):
         self.projection1 = nn.Linear(cfg.hidden_size, 
                                      cfg.mlc_decoder_cfg.hidden_size)
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
-        self.projection2 = nn.Linear(cfg.mlc_decoder_cfg.hidden_size,
-                                     cfg.hidden_size)
+
         self.codebook = CodeBook(cfg)
+        self.position_embedding = PositionEmbeddings(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
@@ -154,6 +159,8 @@ class PretrainModel(nn.Module):
             module.weight.data.fill_(1.0)
 
     def forward(self, img, mask):
+        bs = img.size(0)
+
         # image encoding
         patch_emb = self.patch_embedding(img)
         encoder_output = self.encoder(patch_emb)
@@ -166,16 +173,15 @@ class PretrainModel(nn.Module):
 
         # orthogonal regularization
         normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
-        identity_mat = self.identity_mat.repeat(normalized.size(0), 1, 1)
+        identity_mat = self.identity_mat.repeat(bs, 1, 1)
         loss_reg = F.mse_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
                               identity_mat)
 
         # quantization
-        projected_mlc = self.projection2(mlc_emb)
-        quantized, loss_dvae, indices = self.codebook(projected_mlc)
+        quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
         # image reconstruction
-        masked_patch_embs = self.patch_embedding(img, mask)
+        masked_patch_embs = self.position_embedding().repeat(bs, 1, 1)
         denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_patch_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
         target_patches = patchify(img, self.cfg.patch_size)[mask]
