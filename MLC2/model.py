@@ -165,13 +165,13 @@ class PretrainModel(nn.Module):
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # orthogonal regularization
-        projected_mlc = self.projection2(mlc_emb)
-        normalized = projected_mlc / projected_mlc.norm(dim=-1, keepdim=True)
+        normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
         identity_mat = self.identity_mat.repeat(normalized.size(0), 1, 1)
         loss_reg = F.mse_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
                               identity_mat)
 
         # quantization
+        projected_mlc = self.projection2(mlc_emb)
         quantized, loss_dvae, indices = self.codebook(projected_mlc)
 
         # image reconstruction
