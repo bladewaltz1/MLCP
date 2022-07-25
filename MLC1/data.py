@@ -88,8 +88,8 @@ validation_datasets = {
     },
 }
 
-frequent_words = "in this image picture I we can see a here there this is . \
-                  the <|startoftext|> , <|endoftext|>"
+frequent_words = "in on of to this that which image picture I we can see a an the \
+                  here there is are . , <|startoftext|> <|endoftext|>"
 
 
 def build_openimage(ann_paths, img_dirs):

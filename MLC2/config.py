@@ -19,10 +19,10 @@ _C.solver = CN()
 _C.solver.lr = 2.5e-4
 _C.solver.weight_decay = 5e-2
 _C.solver.betas = (0.9, 0.97)
-_C.solver.dvae_weight = 0.5
+_C.solver.dvae_weight = 0.25 # TODO
 _C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0
-_C.solver.reg_weight = 0.01
+_C.solver.reg_weight = 0.1 # TODO
 
 _C.hidden_size = 768
 _C.image_size = 256

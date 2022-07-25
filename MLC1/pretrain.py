@@ -29,15 +29,16 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
         optimizer.zero_grad()
 
         for iteration, batch in enumerate(data_loader):
-            iteration = iteration + 1
             batch = [p.to(cfg.device) for p in batch]
 
             with torch.cuda.amp.autocast():
                 loss_dict = model(*batch)
-                loss = loss_dict["loss_ctr"] * cfg.solver.ctr_weight + \
-                       loss_dict["loss_imgrec"] * cfg.solver.imgrec_weight + \
-                       loss_dict["loss_txtrec"] * cfg.solver.txtrec_weight + \
-                       loss_dict["loss_reg"] * cfg.solver.reg_weight
+                loss = loss_dict["loss_img_ctr"] * cfg.solver.img_ctr_weight + \
+                       loss_dict["loss_txt_ctr"] * cfg.solver.txt_ctr_weight + \
+                       loss_dict["loss_img_rec"] * cfg.solver.img_rec_weight + \
+                       loss_dict["loss_txt_rec"] * cfg.solver.txt_rec_weight + \
+                       loss_dict["loss_img_reg"] * cfg.solver.img_reg_weight + \
+                       loss_dict["loss_txt_reg"] * cfg.solver.txt_reg_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -47,19 +48,24 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                 logger.info(
                     "  ".join([
                         "iter: {iter}", 
-                        "loss_ctr: {loss_ctr:.4f}", 
-                        "loss_reg: {loss_reg:.4f}", 
-                        "loss_imgrec: {loss_imgrec:.4f}", 
-                        "loss_txtrec: {loss_txtrec:.4f}",
+                        "loss_img_ctr: {loss_img_ctr:.4f}", 
+                        "loss_txt_ctr: {loss_txt_ctr:.4f}", 
+                        "loss_img_reg: {loss_img_reg:.4f}", 
+                        "loss_txt_reg: {loss_txt_reg:.4f}", 
+                        "loss_img_rec: {loss_img_rec:.4f}", 
+                        "loss_txt_rec: {loss_txt_rec:.4f}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
-                        loss_ctr=loss_dict["loss_ctr"], 
-                        loss_reg=loss_dict["loss_reg"], 
-                        loss_imgrec=loss_dict["loss_imgrec"], 
-                        loss_txtrec=loss_dict["loss_txtrec"], 
+                        loss_img_ctr=loss_dict["loss_img_ctr"], 
+                        loss_txt_ctr=loss_dict["loss_txt_ctr"], 
+                        loss_img_reg=loss_dict["loss_img_reg"], 
+                        loss_txt_reg=loss_dict["loss_txt_reg"], 
+                        loss_img_rec=loss_dict["loss_img_rec"], 
+                        loss_txt_rec=loss_dict["loss_txt_rec"], 
                         lr=optimizer.param_groups[0]["lr"],
                     ))
+            iteration = iteration + 1
 
         checkpointer.save("model_{:04d}".format(epoch))
 

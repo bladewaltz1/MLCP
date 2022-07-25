@@ -29,7 +29,6 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
         optimizer.zero_grad()
 
         for iteration, batch in enumerate(data_loader):
-            iteration = iteration + 1
             batch = [p.to(cfg.device) for p in batch]
 
             with torch.cuda.amp.autocast():
@@ -59,6 +58,7 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         num_indices=len(indices.unique()),
                         lr=optimizer.param_groups[0]["lr"],
                     ))
+            iteration = iteration + 1
 
         checkpointer.save("model_{:04d}".format(epoch))
         checkpointer.save("last_checkpoint")

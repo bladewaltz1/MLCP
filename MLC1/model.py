@@ -213,8 +213,8 @@ class PretrainModel(nn.Module):
         img_mlc, projected_img_mlc, _ = self.img_decoder(img_hidden_states)
         # orthogonal regularization
         identity_mat = self.identity_mat.repeat(img_mlc.size(0), 1, 1)
-        img_reg = F.mse_loss(torch.bmm(projected_img_mlc,
-                                       projected_img_mlc.transpose(2, 1)),
+        img_reg = F.l1_loss(torch.bmm(projected_img_mlc,
+                                      projected_img_mlc.transpose(2, 1)),
                              identity_mat)
 
         # text encoding
@@ -224,8 +224,8 @@ class PretrainModel(nn.Module):
         txt_mlc, projected_txt_mlc, _ = self.txt_decoder(txt_hidden_states, 
                                                          pad_mask)
         # orthogonal regularization
-        txt_reg = F.mse_loss(torch.bmm(projected_txt_mlc,
-                                       projected_txt_mlc.transpose(2, 1)),
+        txt_reg = F.l1_loss(torch.bmm(projected_txt_mlc,
+                                      projected_txt_mlc.transpose(2, 1)),
                              identity_mat)
 
         # LSA between projected_img_query and projected_txt_mlc
@@ -244,12 +244,12 @@ class PretrainModel(nn.Module):
         projected_txt_mlc = projected_txt_mlc.view(-1, self.cfg.projection_dim)
         projected_txt_mlc = projected_txt_mlc[indices, :]
 
-        loss_contrastive = contrastive_loss(projected_img_mlc, 
-                                            projected_txt_mlc,
-                                            self.logit_scale) + \
-                           contrastive_loss(projected_txt_mlc, 
-                                            projected_img_mlc,
-                                            self.logit_scale)
+        loss_img_ctr = contrastive_loss(projected_img_mlc, 
+                                        projected_txt_mlc,
+                                        self.logit_scale)
+        loss_txt_ctr = contrastive_loss(projected_txt_mlc, 
+                                        projected_img_mlc,
+                                        self.logit_scale)
 
         # image reconstruction
         masked_img_embeds = self.img_embedding(img, img_mask)
@@ -259,7 +259,7 @@ class PretrainModel(nn.Module):
         mean = patches.mean(dim=-1, keepdim=True)
         var = patches.var(dim=-1, keepdim=True)
         patches = (patches - mean) / (var + 1e-6) ** 0.5
-        loss_img_reconstruction = F.mse_loss(denoised_img, patches)
+        loss_img_rec = F.mse_loss(denoised_img, patches)
 
         # caption reconstruction
         masked_txt_embeds = self.txt_embedding(txt, txt_mask)
@@ -267,11 +267,13 @@ class PretrainModel(nn.Module):
                                                     masked_txt_embeds, 
                                                     pad_mask)
         denoised_txt = self.token_head(denoised_txt_embeds[txt_mask])
-        loss_txt_reconstruction = F.cross_entropy(denoised_txt, 
-                                                  txt[txt_mask], 
-                                                  weight=balance_weight)
+        loss_txt_rec = F.cross_entropy(denoised_txt, 
+                                       txt[txt_mask], 
+                                       weight=balance_weight)
 
-        return {"loss_ctr": loss_contrastive, 
-                "loss_reg": img_reg + txt_reg,
-                "loss_imgrec": loss_img_reconstruction, 
-                "loss_txtrec": loss_txt_reconstruction}
+        return {"loss_img_ctr": loss_img_ctr, 
+                "loss_txt_ctr": loss_txt_ctr, 
+                "loss_img_reg": img_reg,
+                "loss_txt_reg": txt_reg,
+                "loss_img_rec": loss_img_rec, 
+                "loss_txt_rec": loss_txt_rec}

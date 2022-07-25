@@ -174,15 +174,15 @@ class PretrainModel(nn.Module):
         # orthogonal regularization
         normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
         identity_mat = self.identity_mat.repeat(bs, 1, 1)
-        loss_reg = F.mse_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
-                              identity_mat)
+        loss_reg = F.l1_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
+                             identity_mat)
 
         # quantization
         quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
         # image reconstruction
-        masked_patch_embs = self.position_embedding().repeat(bs, 1, 1)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_patch_embs)
+        position_embs = self.position_embedding().repeat(bs, 1, 1)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
         target_patches = patchify(img, self.cfg.patch_size)[mask]
         mean = target_patches.mean(dim=-1, keepdim=True)
