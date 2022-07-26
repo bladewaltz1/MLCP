@@ -9,16 +9,16 @@ from utils.scheduler import CosineScheduler
 
 
 class ImageEmbeddings(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, dim):
         super().__init__()
         self.patch_embedding = nn.Conv2d(in_channels=3, 
-                                         out_channels=cfg.hidden_size,
+                                         out_channels=dim,
                                          kernel_size=cfg.patch_size, 
                                          stride=cfg.patch_size, 
                                          bias=False)
 
         num_patches = (cfg.image_size // cfg.patch_size) ** 2
-        self.position_embedding = nn.Embedding(num_patches, cfg.hidden_size)
+        self.position_embedding = nn.Embedding(num_patches, dim)
         position_ids = torch.arange(num_patches).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
@@ -29,17 +29,20 @@ class ImageEmbeddings(nn.Module):
         return embeddings
 
 
-class PositionEmbeddings(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
-        num_patches = (cfg.image_size // cfg.patch_size) ** 2
-        self.position_embedding = nn.Embedding(num_patches,
-                                               cfg.pixel_decoder_cfg.hidden_size)
-        position_ids = torch.arange(num_patches).expand((1, -1))
-        self.register_buffer("position_ids", position_ids)
+class ImageEmbeddingsWithMask(ImageEmbeddings):
+    def __init__(self, cfg, dim):
+        super().__init__(cfg, dim)
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, dim]))
+        torch.nn.init.normal_(self.mask_embedding, std=0.02)
 
-    def forward(self):
-        embeddings = self.position_embedding(self.position_ids)
+    def forward(self, pixel_values, mask):
+        patch_embeds = self.patch_embedding(pixel_values)
+        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+
+        mask = mask.to(torch.float32).unsqueeze(-1)
+        patch_embeds = patch_embeds * (1 - mask) + self.mask_embedding * mask
+
+        embeddings = patch_embeds + self.position_embedding(self.position_ids)
         return embeddings
 
 
@@ -120,7 +123,7 @@ class DenoiseDecoder(nn.Module):
 class PretrainModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.patch_embedding = ImageEmbeddings(cfg)
+        self.patch_embedding = ImageEmbeddings(cfg, cfg.hidden_size)
         encoder_cfg = ViTConfig(image_size=cfg.image_size,
                                 patch_size=cfg.patch_size)
         self.encoder = ViTEncoder(encoder_cfg)
@@ -130,7 +133,9 @@ class PretrainModel(nn.Module):
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
         self.codebook = GumbelQuantize(cfg)
-        self.position_embedding = PositionEmbeddings(cfg)
+        self.mask_embedding = ImageEmbeddingsWithMask(
+            cfg, cfg.pixel_decoder_cfg.hidden_size
+        )
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
@@ -177,8 +182,8 @@ class PretrainModel(nn.Module):
         quantized, loss_kl, indices = self.codebook(mlc_emb)
 
         # image reconstruction
-        position_embs = self.position_embedding().repeat(bs, 1, 1)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
+        masked_embs = self.mask_embedding(img, mask)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
         target_patches = patchify(img, self.cfg.patch_size)[mask]
         mean = target_patches.mean(dim=-1, keepdim=True)
