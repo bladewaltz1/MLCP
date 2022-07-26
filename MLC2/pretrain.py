@@ -68,7 +68,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="train")
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--config-file", default="", metavar="FILE")
-    parser.add_argument("--load-last-checkpoint", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("opts", default=None, nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                                 save_dir=save_dir,
                                 save_to_disk=get_rank() == 0,
                                 logger=logger)
-    if args.load_last_checkpoint:
+    if args.resume:
         path = os.path.join(save_dir, "last_checkpoint.pth")
         if os.path.exists(path):
             checkpointer.load(path)
