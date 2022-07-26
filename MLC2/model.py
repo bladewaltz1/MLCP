@@ -1,13 +1,11 @@
-from math import dist
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from scipy.optimize import linear_sum_assignment
 from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
 from utils import patchify
 from utils.transformer import TransformerDecoderLayer, TransformerDecoder
+from utils.scheduler import CosineScheduler
 
 
 class ImageEmbeddings(nn.Module):
@@ -67,38 +65,36 @@ class MLCDecoder(nn.Module):
         return mlc_queries, attn_weights
 
 
-class CodeBook(nn.Module):
+class GumbelQuantize(nn.Module):
     def __init__(self, cfg):
-        super(CodeBook, self).__init__()
+        super().__init__()
+        self.temperature_scheduler = CosineScheduler(cfg.temperature.init_value,
+                                                     cfg.temperature.total_step)
         self.embedding = nn.Embedding(cfg.num_codes, 
                                       cfg.mlc_decoder_cfg.hidden_size)
-        self.commitment_cost = cfg.solver.commitment_cost
+        self.cfg = cfg
 
     def forward(self, mlc_emb):
-        bs, seq_len, hidden_size = mlc_emb.shape
-        mlc_emb = mlc_emb.view(-1, hidden_size)
-        distances = (torch.sum(mlc_emb**2, dim=1, keepdim=True)
-            + torch.sum(self.embedding.weight**2, dim=1)
-            - 2 * torch.matmul(mlc_emb, self.embedding.weight.t())).sqrt()
+        self.temperature_scheduler.step()
+        logits = torch.einsum("b l d, c d -> b l c", 
+                              mlc_emb, self.embedding.weight)
 
-        distances = distances.view(bs, seq_len, -1)
-        indices = [
-            linear_sum_assignment(d.detach().cpu().numpy())[1]
-            for d in distances
-        ]
-        indices = torch.from_numpy(np.concatenate(indices))
-        indices = indices.to(mlc_emb.device)
-        # indices = torch.min(distances, dim=-1)[1]
-        # print("#indices: ", len(indices.unique()))
+        # Force hard = True when we are in eval mode, as we must quantize. 
+        # Actually, always true seems to work
+        soft_one_hot = F.gumbel_softmax(logits, 
+                                        tau=self.temperature_scheduler.value, 
+                                        dim=-1, 
+                                        hard=True)
+        quantized = torch.einsum("b l c, c d -> b l d", 
+                                 soft_one_hot, 
+                                 self.embedding.weight)
 
-        quantized = self.embedding(indices)
+        # kl divergence
+        y = F.softmax(logits, dim=-1)
+        diff = torch.sum(y * torch.log(y * self.cfg.num_codes + 1e-10), dim=-1)
 
-        q_latent_loss = F.mse_loss(mlc_emb.detach(), quantized)
-        e_latent_loss = F.mse_loss(mlc_emb, quantized.detach())
-        loss = q_latent_loss + self.commitment_cost * e_latent_loss
-        quantized = mlc_emb + (quantized - mlc_emb).detach()
-
-        return quantized.view(bs, seq_len, hidden_size), loss, indices
+        ind = soft_one_hot.argmax(dim=-1)
+        return quantized, diff.mean(), ind
 
 
 class DenoiseDecoder(nn.Module):
@@ -133,7 +129,7 @@ class PretrainModel(nn.Module):
                                      cfg.mlc_decoder_cfg.hidden_size)
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
-        self.codebook = CodeBook(cfg)
+        self.codebook = GumbelQuantize(cfg)
         self.position_embedding = PositionEmbeddings(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
@@ -178,7 +174,7 @@ class PretrainModel(nn.Module):
                              identity_mat)
 
         # quantization
-        quantized, loss_dvae, indices = self.codebook(mlc_emb)
+        quantized, loss_kl, indices = self.codebook(mlc_emb)
 
         # image reconstruction
         position_embs = self.position_embedding().repeat(bs, 1, 1)
@@ -190,4 +186,4 @@ class PretrainModel(nn.Module):
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
         loss_rec = F.mse_loss(denoised_patches, target_patches)
 
-        return loss_rec, loss_dvae, loss_reg, indices
+        return loss_rec, loss_kl, loss_reg, indices

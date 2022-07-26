@@ -12,17 +12,21 @@ _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
 _C.samples_per_gpu = 64
-_C.num_workers = 4
-_C.warmup_epoches = 2
+_C.num_workers = 8
+_C.warmup_epoches = 0
 
 _C.solver = CN()
-_C.solver.lr = 2.5e-4
+_C.solver.lr = 5e-6
 _C.solver.weight_decay = 5e-2
 _C.solver.betas = (0.9, 0.97)
-_C.solver.dvae_weight = 0.25 # TODO
-_C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0
-_C.solver.reg_weight = 0.1 # TODO
+_C.solver.kl_weight = 1e-8 # TODO
+_C.solver.reg_weight = 5e-4 # TODO
+
+_C.temperature = CN()
+_C.temperature.init_value = 1.0
+# set after training started
+_C.temperature.total_step = 0
 
 _C.hidden_size = 768
 _C.image_size = 256

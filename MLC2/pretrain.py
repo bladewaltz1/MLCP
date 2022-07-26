@@ -32,9 +32,9 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             batch = [p.to(cfg.device) for p in batch]
 
             with torch.cuda.amp.autocast():
-                loss_rec, loss_dvae, loss_reg, indices = model(*batch)
+                loss_rec, loss_kl, loss_reg, indices = model(*batch)
                 loss = loss_rec * cfg.solver.rec_weight + \
-                       loss_dvae * cfg.solver.dvae_weight + \
+                       loss_kl * cfg.solver.kl_weight + \
                        loss_reg * cfg.solver.reg_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
@@ -46,14 +46,14 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                     "  ".join([
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
-                        "loss_dvae: {loss_dvae:.4f}",
+                        "loss_kl: {loss_kl:.4f}",
                         "loss_reg: {loss_reg:.4f}",
                         "#indices: {num_indices}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
                         loss_rec=loss_rec, 
-                        loss_dvae=loss_dvae, 
+                        loss_kl=loss_kl, 
                         loss_reg=loss_reg, 
                         num_indices=len(indices.unique()),
                         lr=optimizer.param_groups[0]["lr"],
@@ -74,7 +74,6 @@ if __name__ == "__main__":
 
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
-    cfg.freeze()
 
     if cfg.distributed:
         torch.cuda.set_device(args.local_rank)
@@ -86,10 +85,17 @@ if __name__ == "__main__":
     logger = setup_logger("train", save_dir, get_rank())
     logger.info("Running with cfg:\n{}".format(cfg))
 
+    dataset = Dataset(cfg)
+
+    num_gpus = get_world_size()
+    iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
+    warmup_steps = iterations_per_epoch * cfg.warmup_epoches
+    max_steps = cfg.epochs * iterations_per_epoch
+    cfg.temperature.total_step = max_steps
+    cfg.freeze()
+
     model = PretrainModel(cfg)
     model = model.to(cfg.device)
-
-    dataset = Dataset(cfg)
 
     optimizer = torch.optim.AdamW(params=model.parameters(),
                                   lr=cfg.solver.lr,
@@ -98,10 +104,6 @@ if __name__ == "__main__":
 
     loss_scaler = NativeScalerWithGradNormCount()
 
-    num_gpus = get_world_size()
-    iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
-    warmup_steps = iterations_per_epoch * cfg.warmup_epoches
-    max_steps = cfg.epochs * iterations_per_epoch
     scheduler = transformers.get_cosine_schedule_with_warmup(
         optimizer=optimizer,
         num_warmup_steps=warmup_steps,
@@ -116,7 +118,7 @@ if __name__ == "__main__":
                                 save_to_disk=get_rank() == 0,
                                 logger=logger)
     if args.load_last_checkpoint:
-        path = os.path.joint(save_dir, "last_checkpoint.pth")
+        path = os.path.join(save_dir, "last_checkpoint.pth")
         if os.path.exists(path):
             checkpointer.load(path)
 
