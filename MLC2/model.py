@@ -31,6 +31,23 @@ class ImageEmbeddings(nn.Module):
         return embeddings
 
 
+class ImageEmbeddingsWithMask(ImageEmbeddings):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, cfg.hidden_size]))
+        torch.nn.init.normal_(self.mask_embedding, std=0.02)
+
+    def forward(self, pixel_values, mask):
+        patch_embeds = self.patch_embedding(pixel_values)
+        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+
+        mask = mask.to(torch.float32).unsqueeze(-1)
+        patch_embeds = patch_embeds * (1 - mask) + self.mask_embedding * mask
+
+        embeddings = patch_embeds + self.position_embedding(self.position_ids)
+        return embeddings
+
+
 class PositionEmbeddings(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -134,7 +151,7 @@ class PretrainModel(nn.Module):
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
         self.codebook = CodeBook(cfg)
-        self.position_embedding = PositionEmbeddings(cfg)
+        self.masked_embedding = ImageEmbeddingsWithMask(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
@@ -181,8 +198,8 @@ class PretrainModel(nn.Module):
         quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
         # image reconstruction
-        position_embs = self.position_embedding().repeat(bs, 1, 1)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
+        masked_embs = self.masked_embedding(img, mask)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_embs)
         denoised_patches = self.pixel_head(denoised_patch_embs[mask])
         target_patches = patchify(img, self.cfg.patch_size)[mask]
         mean = target_patches.mean(dim=-1, keepdim=True)

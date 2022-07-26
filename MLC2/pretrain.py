@@ -116,7 +116,7 @@ if __name__ == "__main__":
                                 save_to_disk=get_rank() == 0,
                                 logger=logger)
     if args.load_last_checkpoint:
-        path = os.path.joint(save_dir, "last_checkpoint.pth")
+        path = os.path.join(save_dir, "last_checkpoint.pth")
         if os.path.exists(path):
             checkpointer.load(path)
 
