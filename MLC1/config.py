@@ -36,6 +36,7 @@ _C.token_mask_ratio = 0.9
 _C.vocab_size = 49408
 _C.initializer_range = 0.02
 _C.balance_weight = 0.1
+_C.label_smoothing = 0.0
 
 _C.img_decoder_cfg = CN()
 _C.img_decoder_cfg.num_queries = 100

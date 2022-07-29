@@ -155,7 +155,7 @@ class DenoiseDecoder(nn.Module):
 
 
 class PretrainModel(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, balance_weight):
         super().__init__()
         img_encoder_cfg = CLIPVisionConfig(image_size=cfg.image_size,
                                            patch_size=cfg.patch_size)
@@ -191,6 +191,7 @@ class PretrainModel(nn.Module):
         self.register_buffer("identity_mat", identity_mat)
 
         self.cfg = cfg
+        self.register_buffer("balance_weight", balance_weight)
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
@@ -204,7 +205,7 @@ class PretrainModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, img, txt, pad_mask, img_mask, txt_mask, balance_weight):
+    def forward(self, img, txt, pad_mask, img_mask, txt_mask):
         # image encoding
         output_ = self.img_encoder(img)
         img_hidden_states = output_.last_hidden_state
@@ -269,7 +270,8 @@ class PretrainModel(nn.Module):
         denoised_txt = self.token_head(denoised_txt_embeds[txt_mask])
         loss_txt_rec = F.cross_entropy(denoised_txt, 
                                        txt[txt_mask], 
-                                       weight=balance_weight)
+                                       weight=self.balance_weight,
+                                       label_smoothing=self.cfg.label_smoothing)
 
         return {"loss_img_ctr": loss_img_ctr, 
                 "loss_txt_ctr": loss_txt_ctr, 

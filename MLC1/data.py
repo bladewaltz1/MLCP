@@ -254,8 +254,7 @@ class Dataset(Dataset):
         token_mask[0] = 0
         token_mask[-1] = 0
 
-        return pixels, tokens, patch_mask.bool(), token_mask.bool(), \
-               self.balance_weight
+        return pixels, tokens, patch_mask.bool(), token_mask.bool()
 
     def __len__(self):
         return len(self.database)
@@ -272,4 +271,4 @@ def collate_fn(batch):
     batch_token_mask = pad_sequence(batch[3], batch_first=True, padding_value=0)
 
     return batch_pixels, batch_tokens, padding_mask, batch_patch_mask, \
-           batch_token_mask, batch[4][0]
+           batch_token_mask

@@ -93,10 +93,10 @@ if __name__ == "__main__":
     logger = setup_logger("train", save_dir, get_rank())
     logger.info("Running with cfg:\n{}".format(cfg))
 
-    model = PretrainModel(cfg)
-    model = model.to(cfg.device)
-
     dataset = Dataset(cfg, "train")
+
+    model = PretrainModel(cfg, dataset.balance_weight)
+    model = model.to(cfg.device)
 
     optimizer = torch.optim.AdamW(params=model.parameters(),
                                   lr=cfg.solver.lr,
