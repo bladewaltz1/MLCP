@@ -33,12 +33,14 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
 
             with torch.cuda.amp.autocast():
                 loss_dict = model(*batch)
-                loss = loss_dict["loss_img_ctr"] * cfg.solver.img_ctr_weight + \
-                       loss_dict["loss_txt_ctr"] * cfg.solver.txt_ctr_weight + \
-                       loss_dict["loss_img_rec"] * cfg.solver.img_rec_weight + \
-                       loss_dict["loss_txt_rec"] * cfg.solver.txt_rec_weight + \
-                       loss_dict["loss_img_reg"] * cfg.solver.img_reg_weight + \
-                       loss_dict["loss_txt_reg"] * cfg.solver.txt_reg_weight
+                loss = loss_dict["loss_img_fctr"] * cfg.solver.img_fctr + \
+                       loss_dict["loss_txt_fctr"] * cfg.solver.txt_fctr + \
+                       loss_dict["loss_img_cctr"] * cfg.solver.img_cctr + \
+                       loss_dict["loss_txt_cctr"] * cfg.solver.txt_cctr + \
+                       loss_dict["loss_img_rec"] * cfg.solver.img_rec + \
+                       loss_dict["loss_txt_rec"] * cfg.solver.txt_rec + \
+                       loss_dict["loss_img_reg"] * cfg.solver.img_reg + \
+                       loss_dict["loss_txt_reg"] * cfg.solver.txt_reg
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -48,8 +50,10 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                 logger.info(
                     "  ".join([
                         "iter: {iter}", 
-                        "loss_img_ctr: {loss_img_ctr:.4f}", 
-                        "loss_txt_ctr: {loss_txt_ctr:.4f}", 
+                        "loss_img_fctr: {loss_img_fctr:.4f}", 
+                        "loss_txt_fctr: {loss_txt_fctr:.4f}", 
+                        "loss_img_cctr: {loss_img_cctr:.4f}", 
+                        "loss_txt_cctr: {loss_txt_cctr:.4f}", 
                         "loss_img_reg: {loss_img_reg:.4f}", 
                         "loss_txt_reg: {loss_txt_reg:.4f}", 
                         "loss_img_rec: {loss_img_rec:.4f}", 
@@ -57,8 +61,10 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
-                        loss_img_ctr=loss_dict["loss_img_ctr"], 
-                        loss_txt_ctr=loss_dict["loss_txt_ctr"], 
+                        loss_img_fctr=loss_dict["loss_img_fctr"], 
+                        loss_txt_fctr=loss_dict["loss_txt_fctr"], 
+                        loss_img_cctr=loss_dict["loss_img_cctr"], 
+                        loss_txt_cctr=loss_dict["loss_txt_cctr"], 
                         loss_img_reg=loss_dict["loss_img_reg"], 
                         loss_txt_reg=loss_dict["loss_txt_reg"], 
                         loss_img_rec=loss_dict["loss_img_rec"], 

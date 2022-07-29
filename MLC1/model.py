@@ -105,6 +105,7 @@ class TextEmbeddingsWithMask(nn.Module):
         return embeddings
 
 
+# TODO add query initial layer, reduce dim to 256, increase decoder layer
 class MLCDecoder(nn.Module):
     def __init__(self, cfg, num_queries, projection_dim):
         super().__init__()
@@ -130,9 +131,11 @@ class MLCDecoder(nn.Module):
                                                  memory_key_padding_mask=pad_mask)
 
         projected = self.projection(mlc_queries)
+        avg_projected = projected.mean(dim=1)
         projected = projected / projected.norm(dim=-1, keepdim=True)
+        avg_projected = avg_projected / avg_projected.norm(dim=-1, keepdim=True)
 
-        return mlc_queries, projected, attn_weights
+        return mlc_queries, projected, avg_projected, attn_weights
 
 
 class DenoiseDecoder(nn.Module):
@@ -154,6 +157,7 @@ class DenoiseDecoder(nn.Module):
         return denoised_output, attn_weights
 
 
+# TODO queue?
 class PretrainModel(nn.Module):
     def __init__(self, cfg, balance_weight):
         super().__init__()
@@ -186,7 +190,8 @@ class PretrainModel(nn.Module):
                                     bias=True)
 
         temperature = cfg.logit_scale_init_value
-        self.logit_scale = nn.Parameter(torch.tensor([temperature]))
+        self.logit_scale1 = nn.Parameter(torch.tensor([temperature]))
+        self.logit_scale2 = nn.Parameter(torch.tensor([temperature]))
         identity_mat = torch.diag(torch.ones(cfg.num_queries))[None]
         self.register_buffer("identity_mat", identity_mat)
 
@@ -211,7 +216,8 @@ class PretrainModel(nn.Module):
         img_hidden_states = output_.last_hidden_state
         img_hidden_states = self.img_encoder.post_layernorm(img_hidden_states)
         # image mlc decoding
-        img_mlc, projected_img_mlc, _ = self.img_decoder(img_hidden_states)
+        img_mlc, projected_img_mlc, avg_img_mlc, _ = self.img_decoder(
+                                                    img_hidden_states)
         # orthogonal regularization
         identity_mat = self.identity_mat.repeat(img_mlc.size(0), 1, 1)
         img_reg = F.l1_loss(torch.bmm(projected_img_mlc,
@@ -222,8 +228,8 @@ class PretrainModel(nn.Module):
         output_ = self.txt_encoder(txt)
         txt_hidden_states = output_.last_hidden_state
         # text mlc decoding
-        txt_mlc, projected_txt_mlc, _ = self.txt_decoder(txt_hidden_states, 
-                                                         pad_mask)
+        txt_mlc, projected_txt_mlc, avg_txt_mlc, _ = self.txt_decoder(
+                                          txt_hidden_states, pad_mask)
         # orthogonal regularization
         txt_reg = F.l1_loss(torch.bmm(projected_txt_mlc,
                                       projected_txt_mlc.transpose(2, 1)),
@@ -245,12 +251,20 @@ class PretrainModel(nn.Module):
         projected_txt_mlc = projected_txt_mlc.view(-1, self.cfg.projection_dim)
         projected_txt_mlc = projected_txt_mlc[indices, :]
 
-        loss_img_ctr = contrastive_loss(projected_img_mlc, 
-                                        projected_txt_mlc,
-                                        self.logit_scale)
-        loss_txt_ctr = contrastive_loss(projected_txt_mlc, 
-                                        projected_img_mlc,
-                                        self.logit_scale)
+        loss_img_fctr = contrastive_loss(projected_img_mlc, 
+                                         projected_txt_mlc,
+                                         self.logit_scale1)
+        loss_txt_fctr = contrastive_loss(projected_txt_mlc, 
+                                         projected_img_mlc,
+                                         self.logit_scale1)
+
+        # contrastive loss between averaged mlc
+        loss_img_cctr = contrastive_loss(avg_img_mlc, 
+                                         avg_txt_mlc,
+                                         self.logit_scale2)
+        loss_txt_cctr = contrastive_loss(avg_txt_mlc, 
+                                         avg_img_mlc,
+                                         self.logit_scale2)
 
         # image reconstruction
         masked_img_embeds = self.img_embedding(img, img_mask)
@@ -273,8 +287,10 @@ class PretrainModel(nn.Module):
                                        weight=self.balance_weight,
                                        label_smoothing=self.cfg.label_smoothing)
 
-        return {"loss_img_ctr": loss_img_ctr, 
-                "loss_txt_ctr": loss_txt_ctr, 
+        return {"loss_img_fctr": loss_img_fctr, 
+                "loss_txt_fctr": loss_txt_fctr, 
+                "loss_img_cctr": loss_img_cctr, 
+                "loss_txt_cctr": loss_txt_cctr, 
                 "loss_img_reg": img_reg,
                 "loss_txt_reg": txt_reg,
                 "loss_img_rec": loss_img_rec, 
