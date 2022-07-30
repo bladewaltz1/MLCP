@@ -13,18 +13,20 @@ class TransformerDecoderLayer(nn.TransformerDecoderLayer):
         return self.dropout2(x), attn_weights
 
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None,
-                tgt_key_padding_mask=None, memory_key_padding_mask=None):
+                tgt_key_padding_mask=None, memory_key_padding_mask=None,
+                short_cut=True):
 
         x = tgt
         if self.norm_first:
             x = x + self._sa_block(self.norm1(x), tgt_mask, tgt_key_padding_mask)
             x_, attn_weights = self._mha_block(self.norm2(x), memory, memory_mask, memory_key_padding_mask)
-            x = x + x_
+            x = x + x_ if short_cut else x_
             x = x + self._ff_block(self.norm3(x))
         else:
             x = self.norm1(x + self._sa_block(x, tgt_mask, tgt_key_padding_mask))
             x_, attn_weights = self._mha_block(x, memory, memory_mask, memory_key_padding_mask)
-            x = self.norm2(x + x_)
+            x = x + x_ if short_cut else x_
+            x = self.norm2(x)
             x = self.norm3(x + self._ff_block(x))
 
         return x, attn_weights
