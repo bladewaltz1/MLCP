@@ -110,6 +110,13 @@ class MLCDecoder(nn.Module):
     def __init__(self, cfg, num_queries, projection_dim):
         super().__init__()
         self.mlc_embedding = nn.Embedding(num_queries, cfg.embed_dim)
+        self.query_initializer = TransformerDecoderLayer(cfg.embed_dim,
+                                                         cfg.nhead,
+                                                         cfg.ffn_dim,
+                                                         dropout=cfg.dropout,
+                                                         activation=F.gelu,
+                                                         batch_first=True,
+                                                         norm_first=False)
         decoder_layer = TransformerDecoderLayer(cfg.embed_dim,
                                                 cfg.nhead,
                                                 cfg.ffn_dim,
@@ -126,6 +133,10 @@ class MLCDecoder(nn.Module):
         bs = encoder_hidden_states.size(0)
         mlc_queries = self.mlc_embedding.weight[None]
         mlc_queries = mlc_queries.repeat(bs, 1, 1)
+        mlc_queries, _ = self.query_initializer(tgt=mlc_queries,
+                                                memory=encoder_hidden_states,
+                                                memory_key_padding_mask=pad_mask,
+                                                short_cut=False)
         mlc_queries, attn_weights = self.decoder(tgt=mlc_queries,
                                                  memory=encoder_hidden_states,
                                                  memory_key_padding_mask=pad_mask)
@@ -164,10 +175,12 @@ class PretrainModel(nn.Module):
         img_encoder_cfg = CLIPVisionConfig(image_size=cfg.image_size,
                                            patch_size=cfg.patch_size)
         self.img_encoder = CLIPVisionTransformer(img_encoder_cfg)
+        self.linear1 = nn.Linear(img_encoder_cfg.hidden_size, cfg.projection_dim)
         txt_encoder_cfg = CLIPTextConfig(
             max_position_embeddings=cfg.max_position_embeddings
         )
         self.txt_encoder = CLIPTextTransformer(txt_encoder_cfg)
+        self.linear2 = nn.Linear(txt_encoder_cfg.hidden_size, cfg.projection_dim)
 
         self.img_decoder = MLCDecoder(cfg.img_decoder_cfg, 
                                       cfg.num_queries, 
@@ -215,25 +228,27 @@ class PretrainModel(nn.Module):
         output_ = self.img_encoder(img)
         img_hidden_states = output_.last_hidden_state
         img_hidden_states = self.img_encoder.post_layernorm(img_hidden_states)
+        img_hidden_states = self.linear1(img_hidden_states)
         # image mlc decoding
         img_mlc, projected_img_mlc, avg_img_mlc, _ = self.img_decoder(
                                                     img_hidden_states)
         # orthogonal regularization
         identity_mat = self.identity_mat.repeat(img_mlc.size(0), 1, 1)
-        img_reg = F.l1_loss(torch.bmm(projected_img_mlc,
-                                      projected_img_mlc.transpose(2, 1)),
-                             identity_mat)
+        loss_img_reg = F.l1_loss(torch.bmm(projected_img_mlc,
+                                           projected_img_mlc.transpose(2, 1)),
+                                 identity_mat)
 
         # text encoding
         output_ = self.txt_encoder(txt)
         txt_hidden_states = output_.last_hidden_state
+        txt_hidden_states = self.linear2(txt_hidden_states)
         # text mlc decoding
         txt_mlc, projected_txt_mlc, avg_txt_mlc, _ = self.txt_decoder(
                                           txt_hidden_states, pad_mask)
         # orthogonal regularization
-        txt_reg = F.l1_loss(torch.bmm(projected_txt_mlc,
-                                      projected_txt_mlc.transpose(2, 1)),
-                             identity_mat)
+        loss_txt_reg = F.l1_loss(torch.bmm(projected_txt_mlc,
+                                           projected_txt_mlc.transpose(2, 1)),
+                                 identity_mat)
 
         # LSA between projected_img_query and projected_txt_mlc
         indices = []
@@ -287,11 +302,13 @@ class PretrainModel(nn.Module):
                                        weight=self.balance_weight,
                                        label_smoothing=self.cfg.label_smoothing)
 
-        return {"loss_img_fctr": loss_img_fctr, 
-                "loss_txt_fctr": loss_txt_fctr, 
-                "loss_img_cctr": loss_img_cctr, 
-                "loss_txt_cctr": loss_txt_cctr, 
-                "loss_img_reg": img_reg,
-                "loss_txt_reg": txt_reg,
-                "loss_img_rec": loss_img_rec, 
-                "loss_txt_rec": loss_txt_rec}
+        loss_dict =  {"loss_img_fctr": loss_img_fctr, 
+                      "loss_txt_fctr": loss_txt_fctr, 
+                      "loss_img_cctr": loss_img_cctr, 
+                      "loss_txt_cctr": loss_txt_cctr, 
+                      "loss_img_reg": loss_img_reg,
+                      "loss_txt_reg": loss_txt_reg,
+                      "loss_img_rec": loss_img_rec, 
+                      "loss_txt_rec": loss_txt_rec}
+
+        return loss_dict
