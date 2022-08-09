@@ -28,14 +28,13 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             data_loader.batch_sampler.sampler.set_epoch(epoch)
         optimizer.zero_grad()
 
-        for iteration, batch in enumerate(data_loader):
-            batch = [p.to(cfg.device) for p in batch]
+        for iteration, batch_img in enumerate(data_loader):
+            batch_img = batch_img.to(cfg.device)
 
             with torch.cuda.amp.autocast():
-                loss_rec, loss_dvae, loss_reg, indices = model(*batch)
+                loss_rec, loss_dvae, indices = model(batch_img)
                 loss = loss_rec * cfg.solver.rec_weight + \
-                       loss_dvae * cfg.solver.dvae_weight + \
-                       loss_reg * cfg.solver.reg_weight
+                       loss_dvae * cfg.solver.dvae_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -47,14 +46,12 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
                         "loss_dvae: {loss_dvae:.4f}",
-                        "loss_reg: {loss_reg:.4f}",
                         "#indices: {num_indices}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
                         loss_rec=loss_rec, 
                         loss_dvae=loss_dvae, 
-                        loss_reg=loss_reg, 
                         num_indices=len(indices.unique()),
                         lr=optimizer.param_groups[0]["lr"],
                     ))
@@ -100,7 +97,7 @@ if __name__ == "__main__":
 
     num_gpus = get_world_size()
     iterations_per_epoch = len(dataset) // (cfg.samples_per_gpu * num_gpus)
-    warmup_steps = iterations_per_epoch * cfg.warmup_epoches
+    warmup_steps = int(iterations_per_epoch * cfg.warmup_epoches)
     max_steps = cfg.epochs * iterations_per_epoch
     scheduler = transformers.get_cosine_schedule_with_warmup(
         optimizer=optimizer,
