@@ -1,4 +1,4 @@
-image_size: 336
+image_size: 256
 patch_size: 16
 max_position_embeddings: 512
 patch_mask_ratio: 0.75

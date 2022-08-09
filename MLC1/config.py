@@ -27,7 +27,7 @@ _C.solver.img_reg = 1.0
 _C.solver.txt_reg = 4.0
 
 _C.clip_config = "openai/clip-vit-base-patch16"
-_C.image_size = 336
+_C.image_size = 256
 _C.logit_scale_init_value = 0.07
 _C.max_position_embeddings = 512
 _C.num_queries = 100
