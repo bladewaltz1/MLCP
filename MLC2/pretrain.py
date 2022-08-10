@@ -32,12 +32,9 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             batch = [p.to(cfg.device) for p in batch]
 
             with torch.cuda.amp.autocast():
-                loss_rec, loss_kl, loss_reg, indices = model(*batch)
-                loss = loss_rec * cfg.solver.rec_weight + \
-                       loss_kl * cfg.solver.kl_weight + \
-                       loss_reg * cfg.solver.reg_weight
+                loss_rec, indices = model(*batch)
 
-            loss_scaler(loss, optimizer, parameters=model.parameters())
+            loss_scaler(loss_rec, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
             scheduler.step()
 
@@ -46,15 +43,11 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                     "  ".join([
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
-                        "loss_kl: {loss_kl:.4f}",
-                        "loss_reg: {loss_reg:.4f}",
                         "#indices: {num_indices}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
                         loss_rec=loss_rec, 
-                        loss_kl=loss_kl, 
-                        loss_reg=loss_reg, 
                         num_indices=len(indices.unique()),
                         lr=optimizer.param_groups[0]["lr"],
                     ))

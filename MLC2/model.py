@@ -82,22 +82,20 @@ class GumbelQuantize(nn.Module):
         logits = torch.einsum("b l d, c d -> b l c", 
                               mlc_emb, self.embedding.weight)
 
-        # Force hard = True when we are in eval mode, as we must quantize. 
-        # Actually, always true seems to work
         soft_one_hot = F.gumbel_softmax(logits, 
                                         tau=self.temperature_scheduler.value, 
                                         dim=-1, 
-                                        hard=True)
+                                        hard=False)
         quantized = torch.einsum("b l c, c d -> b l d", 
                                  soft_one_hot, 
                                  self.embedding.weight)
 
-        # kl divergence
-        y = F.softmax(logits, dim=-1)
-        diff = torch.sum(y * torch.log(y * self.cfg.num_codes + 1e-10), dim=-1)
+        # # kl divergence
+        # y = F.softmax(logits, dim=-1)
+        # diff = torch.sum(y * torch.log(y * self.cfg.num_codes + 1e-10), dim=-1)
+        # diff = diff.mean()
 
-        ind = soft_one_hot.argmax(dim=-1)
-        return quantized, diff.mean(), ind
+        return quantized, soft_one_hot.argmax(dim=-1)
 
 
 class DenoiseDecoder(nn.Module):
@@ -128,7 +126,7 @@ class PretrainModel(nn.Module):
                                 patch_size=cfg.patch_size)
         self.encoder = ViTEncoder(encoder_cfg)
         self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
-        self.projection1 = nn.Linear(cfg.hidden_size, 
+        self.projection = nn.Linear(cfg.hidden_size, 
                                      cfg.mlc_decoder_cfg.hidden_size)
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
@@ -169,17 +167,11 @@ class PretrainModel(nn.Module):
         hidden_states = self.layernorm(hidden_states)
 
         # image mlc decoding
-        hidden_states = self.projection1(hidden_states)
+        hidden_states = self.projection(hidden_states)
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
-        # orthogonal regularization
-        normalized = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
-        identity_mat = self.identity_mat.repeat(bs, 1, 1)
-        loss_reg = F.l1_loss(torch.bmm(normalized, normalized.transpose(2, 1)),
-                             identity_mat)
-
         # quantization
-        quantized, loss_kl, indices = self.codebook(mlc_emb)
+        quantized, indices = self.codebook(mlc_emb)
 
         # image reconstruction
         masked_embs = self.mask_embedding(img, mask)
@@ -191,4 +183,4 @@ class PretrainModel(nn.Module):
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
         loss_rec = F.mse_loss(denoised_patches, target_patches)
 
-        return loss_rec, loss_kl, loss_reg, indices
+        return loss_rec, indices

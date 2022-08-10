@@ -16,12 +16,9 @@ _C.num_workers = 8
 _C.warmup_epoches = 0
 
 _C.solver = CN()
-_C.solver.lr = 5e-6
+_C.solver.lr = 1e-4
 _C.solver.weight_decay = 5e-2
 _C.solver.betas = (0.9, 0.97)
-_C.solver.rec_weight = 1.0
-_C.solver.kl_weight = 1e-8 # TODO
-_C.solver.reg_weight = 5e-4 # TODO
 
 _C.temperature = CN()
 _C.temperature.init_value = 1.0
@@ -49,4 +46,4 @@ _C.pixel_decoder_cfg.hidden_size = 256
 _C.pixel_decoder_cfg.nhead = 8
 _C.pixel_decoder_cfg.ffn_dim = 2048
 _C.pixel_decoder_cfg.dropout = 0.0
-_C.pixel_decoder_cfg.num_layers = 2
+_C.pixel_decoder_cfg.num_layers = 6
