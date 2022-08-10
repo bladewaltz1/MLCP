@@ -158,8 +158,6 @@ class PretrainModel(nn.Module):
             module.weight.data.fill_(1.0)
 
     def forward(self, img, mask):
-        bs = img.size(0)
-
         # image encoding
         patch_emb = self.patch_embedding(img)
         encoder_output = self.encoder(patch_emb)
