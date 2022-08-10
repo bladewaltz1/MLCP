@@ -1,4 +1,4 @@
-# code below are borrowed from https://github.com/99991/ParallelZipFile
+# code below is borrowed from https://github.com/99991/ParallelZipFile
 """
 Like Python's zipfile, but using mmap instead of a regular file.
 
