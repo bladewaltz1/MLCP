@@ -13,12 +13,14 @@ _C.log_time = 20
 _C.distributed = True
 _C.samples_per_gpu = 64
 _C.num_workers = 4
-_C.warmup_epoches = 1
+_C.warmup_epoches = 0
 
 _C.solver = CN()
 _C.solver.lr = 1e-4
 _C.solver.weight_decay = 5e-2
 _C.solver.betas = (0.9, 0.97)
+_C.solver.dvae_weight_init = 0.1
+_C.solver.dvae_weight_warmup_epoch = 5
 _C.solver.dvae_weight = 1.0 # TODO
 _C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0

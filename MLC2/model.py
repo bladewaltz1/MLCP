@@ -1,8 +1,8 @@
-import numpy as np
+# import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from scipy.optimize import linear_sum_assignment
+# from scipy.optimize import linear_sum_assignment
 from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
 from utils import patchify
@@ -78,16 +78,16 @@ class CodeBook(nn.Module):
         mlc_emb = mlc_emb.view(-1, hidden_size)
         distances = (torch.sum(mlc_emb**2, dim=1, keepdim=True)
             + torch.sum(self.embedding.weight**2, dim=1)
-            - 2 * torch.matmul(mlc_emb, self.embedding.weight.t())).sqrt()
+            - 2 * torch.matmul(mlc_emb, self.embedding.weight.t())) #.sqrt()
 
-        distances = distances.view(bs, seq_len, -1)
-        indices = [
-            linear_sum_assignment(d.detach().cpu().numpy())[1]
-            for d in distances
-        ]
-        indices = torch.from_numpy(np.concatenate(indices))
-        indices = indices.to(mlc_emb.device)
-        # indices = torch.min(distances, dim=-1)[1]
+        # distances = distances.view(bs, seq_len, -1)
+        # indices = [
+        #     linear_sum_assignment(d.detach().cpu().numpy())[1]
+        #     for d in distances
+        # ]
+        # indices = torch.from_numpy(np.concatenate(indices))
+        # indices = indices.to(mlc_emb.device)
+        indices = torch.min(distances, dim=-1)[1]
         # print("#indices: ", len(indices.unique()))
 
         quantized = self.embedding(indices)
@@ -138,10 +138,6 @@ class PretrainModel(nn.Module):
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
                                     bias=True)
-
-        num_queries = cfg.mlc_decoder_cfg.num_queries
-        identity_mat = torch.diag(torch.ones(num_queries))[None]
-        self.register_buffer("identity_mat", identity_mat)
 
         self.cfg = cfg
         self.apply(self._init_weights)
