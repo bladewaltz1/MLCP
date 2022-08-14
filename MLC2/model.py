@@ -82,6 +82,8 @@ class GumbelQuantize(nn.Module):
         logits = torch.einsum("b l d, c d -> b l c", 
                               mlc_emb, self.embedding.weight)
 
+        # logits = logits / self.temperature_scheduler.value
+        # soft_one_hot = F.softmax(logits, dim=-1)
         soft_one_hot = F.gumbel_softmax(logits, 
                                         tau=self.temperature_scheduler.value, 
                                         dim=-1, 
@@ -138,10 +140,6 @@ class PretrainModel(nn.Module):
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
                                     bias=True)
-
-        num_queries = cfg.mlc_decoder_cfg.num_queries
-        identity_mat = torch.diag(torch.ones(num_queries))[None]
-        self.register_buffer("identity_mat", identity_mat)
 
         self.cfg = cfg
         self.apply(self._init_weights)

@@ -1,6 +1,7 @@
 import math
 
 
+# TODO save state
 class CosineScheduler:
     def __init__(self, init_value, total_step):
         self.init_value = init_value
