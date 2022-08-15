@@ -23,9 +23,6 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
     logger.info("Start training")
     model.train()
 
-    delta = (cfg.solver.dvae_weight - cfg.solver.dvae_weight_init) / \
-            (cfg.solver.dvae_weight_warmup_epoch * iterations_per_epoch)
-
     for epoch in range(cfg.start_epoch, cfg.epochs):
         if cfg.distributed:
             data_loader.batch_sampler.sampler.set_epoch(epoch)
@@ -34,16 +31,10 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
         for iteration, batch_img in enumerate(data_loader):
             batch_img = batch_img.to(cfg.device)
 
-            if epoch > cfg.solver.dvae_weight_warmup_epoch:
-                dvae_weight = cfg.solver.dvae_weight
-            else:
-                dvae_weight = (iteration + iterations_per_epoch * epoch) \
-                              * delta + cfg.solver.dvae_weight_init
-
             with torch.cuda.amp.autocast():
                 loss_rec, loss_dvae, indices = model(batch_img)
                 loss = loss_rec * cfg.solver.rec_weight + \
-                       loss_dvae * dvae_weight
+                       loss_dvae * cfg.solver.dvae_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
