@@ -1,6 +1,8 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy.optimize import linear_sum_assignment
 from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
 from utils import patchify
@@ -70,11 +72,9 @@ class CodeBook(nn.Module):
         self.embedding = nn.Embedding(cfg.num_codes, 
                                       cfg.code_dim)
         self.projection1 = nn.Linear(cfg.mlc_decoder_cfg.hidden_size, 
-                                     cfg.mlc_decoder_cfg.hidden_size)
-        mult = (cfg.pixel_decoder_cfg.hidden_size // 
-                cfg.mlc_decoder_cfg.hidden_size)
+                                     cfg.code_dim)
         self.projection2 = nn.Linear(cfg.code_dim, 
-                                     cfg.code_dim * mult)
+                                     cfg.pixel_decoder_cfg.hidden_size)
         self.commitment_cost = cfg.solver.commitment_cost
 
     def forward(self, mlc_emb):
@@ -83,16 +83,23 @@ class CodeBook(nn.Module):
         bs, seq_len, _ = mlc_emb.shape
 
         mlc_emb = self.projection1(mlc_emb)
-        mlc_emb = mlc_emb.view(-1, code_dim) # bs * seq_len * nhead, code_dim
+        mlc_emb = mlc_emb.view(-1, code_dim) # bs * seq_len, code_dim
 
         mlc_emb = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
         code = code / code.norm(dim=-1, keepdim=True)
 
-        distances = torch.sum(mlc_emb**2, dim=1, keepdim=True) \
-                    + torch.sum(code**2, dim=1) \
-                    - 2 * torch.matmul(mlc_emb, code.t())
+        distances = (torch.sum(mlc_emb**2, dim=1, keepdim=True)
+                    + torch.sum(code**2, dim=1)
+                    - 2 * torch.matmul(mlc_emb, code.t())).sqrt()
 
-        indices = torch.min(distances, dim=-1)[1]
+        distances = distances.view(bs, seq_len, -1)
+        indices = [
+            linear_sum_assignment(d.detach().cpu().numpy())[1]
+            for d in distances
+        ]
+        indices = torch.from_numpy(np.concatenate(indices))
+        indices = indices.to(mlc_emb.device)
+
         quantized = self.embedding(indices)
         quantized = quantized / quantized.norm(dim=-1, keepdim=True)
 
