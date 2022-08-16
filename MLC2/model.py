@@ -69,8 +69,7 @@ class MLCDecoder(nn.Module):
 class CodeBook(nn.Module):
     def __init__(self, cfg):
         super(CodeBook, self).__init__()
-        self.embedding = nn.Embedding(cfg.num_codes, 
-                                      cfg.code_dim)
+        self.embedding = nn.Embedding(cfg.num_codes, cfg.code_dim)
         self.projection1 = nn.Linear(cfg.mlc_decoder_cfg.hidden_size, 
                                      cfg.code_dim)
         self.projection2 = nn.Linear(cfg.code_dim, 
@@ -85,12 +84,12 @@ class CodeBook(nn.Module):
         mlc_emb = self.projection1(mlc_emb)
         mlc_emb = mlc_emb.view(-1, code_dim) # bs * seq_len, code_dim
 
-        mlc_emb = mlc_emb / mlc_emb.norm(dim=-1, keepdim=True)
-        code = code / code.norm(dim=-1, keepdim=True)
+        mlc_emb = F.normalize(mlc_emb, p=2.0, dim=-1)
+        code = F.normalize(code, p=2.0, dim=-1)
 
         distances = (torch.sum(mlc_emb**2, dim=1, keepdim=True)
                     + torch.sum(code**2, dim=1)
-                    - 2 * torch.matmul(mlc_emb, code.t())).sqrt()
+                    - 2 * torch.matmul(mlc_emb, code.t())).clamp_min(0).sqrt()
 
         distances = distances.view(bs, seq_len, -1)
         indices = [
@@ -101,7 +100,7 @@ class CodeBook(nn.Module):
         indices = indices.to(mlc_emb.device)
 
         quantized = self.embedding(indices)
-        quantized = quantized / quantized.norm(dim=-1, keepdim=True)
+        quantized = F.normalize(quantized, p=2.0, dim=-1)
 
         q_latent_loss = F.mse_loss(mlc_emb.detach(), quantized)
         e_latent_loss = F.mse_loss(mlc_emb, quantized.detach())
