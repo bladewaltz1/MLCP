@@ -28,11 +28,11 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             data_loader.batch_sampler.sampler.set_epoch(epoch)
         optimizer.zero_grad()
 
-        for iteration, batch in enumerate(data_loader):
-            batch = [p.to(cfg.device) for p in batch]
+        for iteration, batch_img in enumerate(data_loader):
+            batch_img = batch_img.to(cfg.device)
 
             with torch.cuda.amp.autocast():
-                loss_rec, indices = model(*batch)
+                loss_rec, indices = model(batch_img)
 
             loss_scaler(loss_rec, optimizer, parameters=model.parameters())
             optimizer.zero_grad()

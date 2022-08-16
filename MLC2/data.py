@@ -59,13 +59,7 @@ class Dataset(torch.utils.data.Dataset):
         image = random_flip(image)
         pixel_values = self.transform(image, return_tensors="pt").pixel_values
 
-        num_patches = (self.cfg.image_size // self.cfg.patch_size) ** 2
-        num_masked_patches = int(num_patches * self.cfg.patch_mask_ratio)
-        _, masked_indices = torch.rand(num_patches).topk(num_masked_patches)
-        patch_mask = torch.zeros(num_patches, dtype=torch.long)
-        patch_mask[masked_indices] = 1
-
-        return pixel_values, patch_mask.bool()
+        return pixel_values
 
     def __len__(self):
         return len(self.database)
@@ -97,13 +91,7 @@ class ZipDataset(torch.utils.data.Dataset):
         image = random_flip(image)
         pixel_values = self.transform(image, return_tensors="pt").pixel_values
 
-        num_patches = (self.cfg.image_size // self.cfg.patch_size) ** 2
-        num_masked_patches = int(num_patches * self.cfg.patch_mask_ratio)
-        _, masked_indices = torch.rand(num_patches).topk(num_masked_patches)
-        patch_mask = torch.zeros(num_patches, dtype=torch.long)
-        patch_mask[masked_indices] = 1
-
-        return pixel_values, patch_mask.bool()
+        return pixel_values
 
     def __len__(self):
         return len(self.database)
@@ -111,6 +99,5 @@ class ZipDataset(torch.utils.data.Dataset):
 
 def collate_fn(batch):
     batch = list(zip(*batch))
-    batch_pixels_values = torch.cat(batch[0], dim=0)
-    batch_patch_mask = torch.stack(batch[1], dim=0)
-    return batch_pixels_values, batch_patch_mask
+    batch_pixels_values = torch.stack(batch[0], dim=0)
+    return batch_pixels_values
