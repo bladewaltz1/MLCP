@@ -169,6 +169,16 @@ class PretrainModel(nn.Module):
 
         # image encoding
         patch_emb = self.patch_embedding(img)
+
+        # random masking
+        B, L, D = patch_emb.shape
+        noise = torch.rand(B, L, device=patch_emb.device)
+        ids_shuffle = torch.argsort(noise, dim=1)
+        len_keep = int(L * (1 - self.cfg.mask_ratio))
+        ids_keep = ids_shuffle[:, :len_keep]
+        ids_keep = ids_keep.unsqueeze(-1).repeat(1, 1, D)
+        patch_emb = torch.gather(patch_emb, dim=1, index=ids_keep)
+
         encoder_output = self.encoder(patch_emb)
         hidden_states = encoder_output.last_hidden_state
         hidden_states = self.layernorm(hidden_states)
