@@ -1,3 +1,4 @@
+from asyncio import FastChildWatcher
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,17 +31,32 @@ class ImageEmbeddings(nn.Module):
         return embeddings
 
 
-class PositionEmbeddings(nn.Module):
+class ImageEmbeddingsWithMask(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+        hidden_size = cfg.pixel_decoder_cfg.hidden_size
+        self.patch_embedding = nn.Conv2d(in_channels=3, 
+                                         out_channels=hidden_size,
+                                         kernel_size=cfg.patch_size, 
+                                         stride=cfg.patch_size, 
+                                         bias=False)
+
         num_patches = (cfg.image_size // cfg.patch_size) ** 2
-        self.position_embedding = nn.Embedding(num_patches,
-                                               cfg.pixel_decoder_cfg.hidden_size)
+        self.position_embedding = nn.Embedding(num_patches, hidden_size)
         position_ids = torch.arange(num_patches).expand((1, -1))
         self.register_buffer("position_ids", position_ids)
 
-    def forward(self):
-        embeddings = self.position_embedding(self.position_ids)
+        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, hidden_size]))
+        torch.nn.init.normal_(self.mask_embedding, std=0.02)
+
+    def forward(self, pixel_values, mask):
+        patch_embeds = self.patch_embedding(pixel_values)
+        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
+
+        mask = mask.to(patch_embeds.dtype).unsqueeze(-1)
+        patch_embeds = patch_embeds * (1 - mask) + self.mask_embedding * mask
+
+        embeddings = patch_embeds + self.position_embedding(self.position_ids)
         return embeddings
 
 
@@ -144,7 +160,7 @@ class PretrainModel(nn.Module):
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
         self.codebook = CodeBook(cfg)
-        self.position_embedding = PositionEmbeddings(cfg)
+        self.masked_embedding = ImageEmbeddingsWithMask(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
@@ -165,8 +181,6 @@ class PretrainModel(nn.Module):
             module.weight.data.fill_(1.0)
 
     def forward(self, img):
-        bs = img.size(0)
-
         # image encoding
         patch_emb = self.patch_embedding(img)
 
@@ -174,7 +188,7 @@ class PretrainModel(nn.Module):
         B, L, D = patch_emb.shape
         noise = torch.rand(B, L, device=patch_emb.device)
         ids_shuffle = torch.argsort(noise, dim=1)
-        len_keep = int(L * (1 - self.cfg.mask_ratio))
+        len_keep = int(L * (1 - self.cfg.enc_mask_ratio))
         ids_keep = ids_shuffle[:, :len_keep]
         ids_keep = ids_keep.unsqueeze(-1).repeat(1, 1, D)
         patch_emb = torch.gather(patch_emb, dim=1, index=ids_keep)
@@ -190,11 +204,17 @@ class PretrainModel(nn.Module):
         # quantization
         quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
+        # random masking
+        noise = torch.rand(B, L, device=patch_emb.device)
+        len_drop = int(L * self.cfg.dec_mask_ratio)
+        mask_ids = noise.topk(len_drop, dim=1)[1]
+        mask = torch.zeros_like(noise).scatter_(1, mask_ids, 1).bool()
+
         # image reconstruction
-        position_embs = self.position_embedding().repeat(bs, 1, 1)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
-        denoised_patches = self.pixel_head(denoised_patch_embs)
-        target_patches = patchify(img, self.cfg.patch_size)
+        mask_embs = self.masked_embedding(img, mask)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, mask_embs)
+        denoised_patches = self.pixel_head(denoised_patch_embs[mask])
+        target_patches = patchify(img, self.cfg.patch_size)[mask]
         mean = target_patches.mean(dim=-1, keepdim=True)
         var = target_patches.var(dim=-1, keepdim=True)
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
