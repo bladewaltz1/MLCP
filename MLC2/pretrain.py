@@ -54,7 +54,6 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             iteration = iteration + 1
 
         checkpointer.save("model_{:04d}".format(epoch))
-        checkpointer.save("last_checkpoint")
 
 
 if __name__ == "__main__":
@@ -111,9 +110,8 @@ if __name__ == "__main__":
                                 save_to_disk=get_rank() == 0,
                                 logger=logger)
     if args.resume:
-        path = os.path.join(save_dir, "last_checkpoint.pth")
-        if os.path.exists(path):
-            checkpointer.load(path)
+        if os.path.exists(cfg.model_path):
+            checkpointer.load(cfg.model_path)
 
     data_loader = make_data_loader(dataset=dataset,
                                    collate_fn=collate_fn,
