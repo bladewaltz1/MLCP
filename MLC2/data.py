@@ -39,7 +39,7 @@ def random_flip(image):
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, cfg):
         database = []
-        for path, _, files in os.walk(cfg.data_dir):
+        for path, _, files in os.walk(cfg.data_dir, followlinks=True):
             for name in files:
                 database.append(os.path.join(path, name))
         self.database = database
