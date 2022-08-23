@@ -1,3 +1,6 @@
+from audioop import mul
+import multiprocessing
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,20 +33,6 @@ class ImageEmbeddings(nn.Module):
         return embeddings
 
 
-class PositionEmbeddings(nn.Module):
-    def __init__(self, cfg):
-        super().__init__()
-        num_patches = (cfg.image_size // cfg.patch_size) ** 2
-        self.position_embedding = nn.Embedding(num_patches,
-                                               cfg.pixel_decoder_cfg.hidden_size)
-        position_ids = torch.arange(num_patches).expand((1, -1))
-        self.register_buffer("position_ids", position_ids)
-
-    def forward(self):
-        embeddings = self.position_embedding(self.position_ids)
-        return embeddings
-
-
 class MLCDecoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -66,49 +55,86 @@ class MLCDecoder(nn.Module):
         return mlc_queries, attn_weights
 
 
-class CodeBook(nn.Module):
+class MLCModel(nn.Module):
     def __init__(self, cfg):
-        super(CodeBook, self).__init__()
-        self.embedding = nn.Embedding(cfg.num_codes, cfg.code_dim)
-        self.projection1 = nn.Linear(cfg.mlc_decoder_cfg.hidden_size, 
-                                     cfg.code_dim)
-        self.projection2 = nn.Linear(cfg.code_dim, 
-                                     cfg.pixel_decoder_cfg.hidden_size)
+        super().__init__()
+        self.patch_embedding = ImageEmbeddings(cfg)
+        encoder_cfg = ViTConfig(image_size=cfg.image_size,
+                                patch_size=cfg.patch_size)
+        self.encoder = ViTEncoder(encoder_cfg)
+        self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
+        self.projection = nn.Linear(cfg.hidden_size, 
+                                     cfg.mlc_decoder_cfg.hidden_size)
+        self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
+
+    def forward(self, img):
+        patch_emb = self.patch_embedding(img)
+        encoder_output = self.encoder(patch_emb)
+        hidden_states = encoder_output.last_hidden_state
+        hidden_states = self.layernorm(hidden_states)
+
+        hidden_states = self.projection(hidden_states)
+        mlc_emb, attn = self.mlc_decoder(hidden_states)
+        return mlc_emb, attn
+
+
+class CodebookPre(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.projection = nn.Linear(cfg.mlc_decoder_cfg.hidden_size, 
+                                    cfg.code_dim)
+
+    def forward(self, code, mlc_emb):
+        mlc_proj = self.projection(mlc_emb)
+        mlc_proj = F.normalize(mlc_proj, p=2.0, dim=-1)
+        similarity = torch.einsum("bld, cd -> blc", mlc_proj, code)
+        distances = 1 - similarity
+        return distances, mlc_proj
+
+
+class CodebookPost(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.projection = nn.Linear(cfg.code_dim, 
+                                    cfg.pixel_decoder_cfg.hidden_size)
         self.commitment_cost = cfg.solver.commitment_cost
+        self.cfg = cfg
 
-    def forward(self, mlc_emb):
-        code = self.embedding.weight
-        code_dim = code.size(-1)
-        bs, seq_len, _ = mlc_emb.shape
+    def forward(self, mlc_proj, code, code_id):
+        quantized = code[code_id] # bs, L, code_dim
 
-        mlc_emb = self.projection1(mlc_emb)
-        mlc_emb = mlc_emb.view(-1, code_dim) # bs * seq_len, code_dim
+        similarity = (mlc_proj * quantized).sum(dim=-1) # bs, L
+        max_sim = similarity.topk(5, dim=-1)[0][:, [-1]]
+        thresh = torch.minimum(max_sim, torch.ones_like(max_sim) * 
+                                        self.cfg.threshold)
+        valid = similarity >= thresh
+        print(code_id[valid].shape)
 
-        mlc_emb = F.normalize(mlc_emb, p=2.0, dim=-1)
-        code = F.normalize(code, p=2.0, dim=-1)
+        mlc_proj_valid = mlc_proj[valid]
+        quantized_valid = quantized[valid]
 
-        distances = (torch.sum(mlc_emb**2, dim=1, keepdim=True)
-                    + torch.sum(code**2, dim=1)
-                    - 2 * torch.matmul(mlc_emb, code.t())).clamp_min(0).sqrt()
+        q_latent_loss = F.mse_loss(mlc_proj_valid.detach(), quantized_valid)
+        e_latent_loss = F.mse_loss(mlc_proj_valid, quantized_valid.detach())
+        loss_dvae = q_latent_loss + self.commitment_cost * e_latent_loss
 
-        distances = distances.view(bs, seq_len, -1)
-        indices = [
-            linear_sum_assignment(d.detach().cpu().numpy())[1]
-            for d in distances
-        ]
-        indices = torch.from_numpy(np.concatenate(indices))
-        indices = indices.to(mlc_emb.device)
+        quantized = mlc_proj + (quantized - mlc_proj).detach()
+        quantized = self.projection(quantized)
 
-        quantized = self.embedding(indices)
-        quantized = F.normalize(quantized, p=2.0, dim=-1)
+        return quantized, ~valid, loss_dvae
 
-        q_latent_loss = F.mse_loss(mlc_emb.detach(), quantized)
-        e_latent_loss = F.mse_loss(mlc_emb, quantized.detach())
-        loss = q_latent_loss + self.commitment_cost * e_latent_loss
-        quantized = mlc_emb + (quantized - mlc_emb).detach()
-        quantized = self.projection2(quantized)
 
-        return quantized.view(bs, seq_len, -1), loss, indices
+class PositionEmbeddings(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        num_patches = (cfg.image_size // cfg.patch_size) ** 2
+        self.position_embedding = nn.Embedding(num_patches,
+                                               cfg.pixel_decoder_cfg.hidden_size)
+        position_ids = torch.arange(num_patches).expand((1, -1))
+        self.register_buffer("position_ids", position_ids)
+
+    def forward(self):
+        embeddings = self.position_embedding(self.position_ids)
+        return embeddings
 
 
 class DenoiseDecoder(nn.Module):
@@ -124,37 +150,56 @@ class DenoiseDecoder(nn.Module):
         self.decoder = TransformerDecoder(decoder_layer, cfg.num_layers)
         self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
 
-    def forward(self, mlc_queries, masked_input):
-        denoised_output, attn_weights = self.decoder(tgt=masked_input,
-                                                     memory=mlc_queries)
+    def forward(self, mlc_queries, input, pad_mask=None):
+        denoised_output, attn_weights = self.decoder(
+            tgt=input,
+            memory=mlc_queries,
+            memory_key_padding_mask=pad_mask
+        )
         denoised_output = self.layernorm(denoised_output)
         return denoised_output, attn_weights
 
 
-class PretrainModel(nn.Module):
+class DenoiseHead(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.patch_embedding = ImageEmbeddings(cfg)
-        encoder_cfg = ViTConfig(image_size=cfg.image_size,
-                                patch_size=cfg.patch_size)
-        self.encoder = ViTEncoder(encoder_cfg)
-        self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
-        self.projection1 = nn.Linear(cfg.hidden_size, 
-                                     cfg.mlc_decoder_cfg.hidden_size)
-        self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
-
-        self.codebook = CodeBook(cfg)
         self.position_embedding = PositionEmbeddings(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
                                     bias=True)
+        self.cfg = cfg
 
+    def forward(self, img, quantized, pad_mask):
+        bs = quantized.size(0)
+        position_embs = self.position_embedding().repeat(bs, 1, 1)
+        denoised_patch_embs, attn = self.pixel_decoder(quantized, 
+                                                       position_embs,
+                                                       pad_mask)
+        denoised_patches = self.pixel_head(denoised_patch_embs)
+
+        target_patches = patchify(img, self.cfg.patch_size)
+        mean = target_patches.mean(dim=-1, keepdim=True)
+        var = target_patches.var(dim=-1, keepdim=True)
+        target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
+        loss_rec = F.mse_loss(denoised_patches, target_patches)
+
+        return loss_rec, attn
+
+
+class Pretrain(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.codebook = nn.Embedding(cfg.num_codes, cfg.code_dim)
+        self.mlc_model = MLCModel(cfg)
+        self.codebookpre = CodebookPre(cfg)
+        self.codebookpost = CodebookPost(cfg)
+        self.denoise_head = DenoiseHead(cfg)
         self.cfg = cfg
         self.apply(self._init_weights)
 
     def _init_weights(self, module):
-        if isinstance(module, (nn.Linear, nn.Conv2d)):
+        if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=self.cfg.initializer_range)
             if module.bias is not None:
                 module.bias.data.zero_()
@@ -165,29 +210,21 @@ class PretrainModel(nn.Module):
             module.weight.data.fill_(1.0)
 
     def forward(self, img):
-        bs = img.size(0)
+        code = self.codebook.weight # num_codes, code_dim
+        code = F.normalize(code, p=2.0, dim=-1)
+        mlc_emb, _ = self.mlc_model(img)
+        distances, mlc_proj = self.codebookpre(code, mlc_emb)
 
-        # image encoding
-        patch_emb = self.patch_embedding(img)
-        encoder_output = self.encoder(patch_emb)
-        hidden_states = encoder_output.last_hidden_state
-        hidden_states = self.layernorm(hidden_states)
+        distances = distances.detach().cpu().numpy() # bs, L, code_dim
+        with multiprocessing.Pool() as p:
+            code_id = p.map(lsa, list(distances)) # bs * (L,)
+        code_id = torch.from_numpy(np.stack(code_id))
+        code_id = code_id.to(mlc_proj.device)
 
-        # image mlc decoding
-        hidden_states = self.projection1(hidden_states)
-        mlc_emb, _ = self.mlc_decoder(hidden_states)
+        quantized, mask, loss_dvae = self.codebookpost(mlc_proj, code, code_id)
+        loss_rec, _ = self.denoise_head(img, quantized, mask)
+        return loss_rec, loss_dvae, code_id
 
-        # quantization
-        quantized, loss_dvae, indices = self.codebook(mlc_emb)
 
-        # image reconstruction
-        position_embs = self.position_embedding().repeat(bs, 1, 1)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
-        denoised_patches = self.pixel_head(denoised_patch_embs)
-        target_patches = patchify(img, self.cfg.patch_size)
-        mean = target_patches.mean(dim=-1, keepdim=True)
-        var = target_patches.var(dim=-1, keepdim=True)
-        target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
-        loss_rec = F.mse_loss(denoised_patches, target_patches)
-
-        return loss_rec, loss_dvae, indices
+def lsa(mat):
+    return linear_sum_assignment(mat)[1]

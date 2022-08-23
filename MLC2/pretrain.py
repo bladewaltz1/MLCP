@@ -14,7 +14,7 @@ from utils.logger import setup_logger
 
 from MLC2.config import _C as cfg
 from MLC2.data import Dataset, collate_fn
-from MLC2.model import PretrainModel
+from MLC2.model import Pretrain
 
 
 def train(cfg, model, optimizer, loss_scaler, data_loader, 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     logger = setup_logger("train", save_dir, get_rank())
     logger.info("Running with cfg:\n{}".format(cfg))
 
-    model = PretrainModel(cfg)
+    model = Pretrain(cfg)
     model = model.to(cfg.device)
 
     dataset = Dataset(cfg)
