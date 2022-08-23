@@ -222,7 +222,7 @@ class Pretrain(nn.Module):
 
         quantized, mask, loss_dvae = self.codebookpost(mlc_proj, code, code_id)
         loss_rec, _ = self.denoise_head(img, quantized, ~mask)
-        return loss_rec, loss_dvae, code_id[mask]
+        return loss_rec, loss_dvae, code_id, mask
 
 
 def lsa(mat):
