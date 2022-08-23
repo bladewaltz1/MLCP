@@ -197,6 +197,8 @@ class Pretrain(nn.Module):
         self.cfg = cfg
         self.apply(self._init_weights)
 
+        self.pool =  multiprocessing.Pool()
+
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             module.weight.data.normal_(mean=0.0, std=self.cfg.initializer_range)
@@ -215,8 +217,7 @@ class Pretrain(nn.Module):
         distances, mlc_proj = self.codebookpre(code, mlc_emb)
 
         distances = distances.detach().cpu().numpy() # bs, L, code_dim
-        with multiprocessing.Pool() as p:
-            code_id = p.map(lsa, list(distances)) # bs * (L,)
+        code_id = self.pool.map(lsa, list(distances)) # bs * (L,)
         code_id = torch.from_numpy(np.stack(code_id))
         code_id = code_id.to(mlc_proj.device)
 
