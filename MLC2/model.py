@@ -168,7 +168,7 @@ class DenoiseHead(nn.Module):
                                     bias=True)
         self.cfg = cfg
 
-    def forward(self, img, quantized, pad_mask):
+    def forward(self, img, quantized, pad_mask=None):
         bs = quantized.size(0)
         position_embs = self.position_embedding().repeat(bs, 1, 1)
         denoised_patch_embs, attn = self.pixel_decoder(quantized, 

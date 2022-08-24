@@ -46,13 +46,15 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
                         "loss_dvae: {loss_dvae:.4f}",
-                        "#indices: {num_indices}",
+                        "#id: {num_id}",
+                        "#valid: {num_valid}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
                         loss_rec=loss_rec, 
                         loss_dvae=loss_dvae, 
-                        num_indices=len(code_id[mask].unique()),
+                        num_id=len(code_id[mask].unique()),
+                        num_valid=len(mask.nonzero()) // cfg.samples_per_gpu,
                         lr=optimizer.param_groups[0]["lr"],
                     ))
             iteration = iteration + 1
