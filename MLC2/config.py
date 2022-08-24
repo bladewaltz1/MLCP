@@ -22,7 +22,6 @@ _C.solver.betas = (0.9, 0.99)
 _C.solver.dvae_weight = 1.0 # TODO
 _C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0
-_C.solver.reg_weight = 1.0
 
 _C.hidden_size = 768
 _C.image_size = 256
@@ -31,7 +30,6 @@ _C.layer_norm_eps = 1e-12
 _C.num_codes = 8192
 _C.code_dim = 32
 _C.initializer_range = 0.02
-_C.threshold = 0.8
 
 _C.mlc_decoder_cfg = CN()
 _C.mlc_decoder_cfg.num_queries = 100

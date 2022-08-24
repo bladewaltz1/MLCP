@@ -32,10 +32,9 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
             batch_img = batch_img.to(cfg.device)
 
             with torch.cuda.amp.autocast():
-                loss_rec, loss_dvae, loss_reg, code_id, mask = model(batch_img)
+                loss_rec, loss_dvae, code_id = model(batch_img)
                 loss = loss_rec * cfg.solver.rec_weight + \
-                       loss_dvae * cfg.solver.dvae_weight + \
-                       loss_reg * cfg.solver.reg_weight
+                       loss_dvae * cfg.solver.dvae_weight
 
             loss_scaler(loss, optimizer, parameters=model.parameters())
             optimizer.zero_grad()
@@ -47,17 +46,13 @@ def train(cfg, model, optimizer, loss_scaler, data_loader,
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
                         "loss_dvae: {loss_dvae:.4f}",
-                        "loss_reg: {loss_reg:.4f}",
                         "#id: {num_id}",
-                        "#valid: {num_valid}",
                         "lr: {lr:.8f}",
                     ]).format(
                         iter=iteration, 
                         loss_rec=loss_rec, 
                         loss_dvae=loss_dvae, 
-                        loss_reg=loss_reg, 
-                        num_id=len(code_id[mask].unique()),
-                        num_valid=len(mask.nonzero()) // cfg.samples_per_gpu,
+                        num_id=len(code_id.unique()),
                         lr=optimizer.param_groups[0]["lr"],
                     ))
             iteration = iteration + 1

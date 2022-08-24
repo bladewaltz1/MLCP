@@ -99,33 +99,17 @@ class CodebookPost(nn.Module):
         self.commitment_cost = cfg.solver.commitment_cost
         self.cfg = cfg
 
-        identity_mat = torch.diag(torch.ones(cfg.mlc_decoder_cfg.num_queries))
-        self.register_buffer("identity_mat", identity_mat[None])
-
     def forward(self, mlc_proj, code, code_id):
         quantized = code[code_id] # bs, L, code_dim
 
-        similarity = (mlc_proj * quantized).sum(dim=-1) # bs, L
-        max_sim = similarity.topk(5, dim=-1)[0][:, [-1]]
-        thresh = torch.minimum(max_sim, torch.ones_like(max_sim) * 
-                                        self.cfg.threshold)
-        valid = similarity >= thresh
-
-        confusion_mat = torch.bmm(mlc_proj, mlc_proj.permute(0, 2, 1))[valid]
-        identity_mat = self.identity_mat.repeat(valid.size(0), 1, 1)[valid]
-        loss_reg = F.l1_loss(confusion_mat, identity_mat)
-
-        mlc_proj_valid = mlc_proj[valid]
-        quantized_valid = quantized[valid]
-
-        q_latent_loss = F.mse_loss(mlc_proj_valid.detach(), quantized_valid)
-        e_latent_loss = F.mse_loss(mlc_proj_valid, quantized_valid.detach())
+        q_latent_loss = F.mse_loss(mlc_proj.detach(), quantized)
+        e_latent_loss = F.mse_loss(mlc_proj, quantized.detach())
         loss_dvae = q_latent_loss + self.commitment_cost * e_latent_loss
 
         quantized = mlc_proj + (quantized - mlc_proj).detach()
         quantized = self.projection(quantized)
 
-        return quantized, valid, loss_dvae, loss_reg
+        return quantized, loss_dvae
 
 
 class PositionEmbeddings(nn.Module):
@@ -227,11 +211,9 @@ class Pretrain(nn.Module):
         code_id = torch.from_numpy(np.stack(code_id))
         code_id = code_id.to(mlc_proj.device)
 
-        quantized, mask, loss_dvae, loss_reg = self.codebookpost(mlc_proj,
-                                                                 code,
-                                                                 code_id)
-        loss_rec, _ = self.denoise_head(img, quantized, ~mask)
-        return loss_rec, loss_dvae, loss_reg, code_id, mask
+        quantized, loss_dvae = self.codebookpost(mlc_proj, code, code_id)
+        loss_rec, _ = self.denoise_head(img, quantized)
+        return loss_rec, loss_dvae, code_id
 
 
 def lsa(mat):
