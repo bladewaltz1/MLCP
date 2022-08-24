@@ -99,6 +99,9 @@ class CodebookPost(nn.Module):
         self.commitment_cost = cfg.solver.commitment_cost
         self.cfg = cfg
 
+        identity_mat = torch.diag(torch.ones(cfg.mlc_decoder_cfg.num_queries))
+        self.register_buffer("identity_mat", identity_mat[None])
+
     def forward(self, mlc_proj, code, code_id):
         quantized = code[code_id] # bs, L, code_dim
 
@@ -107,6 +110,10 @@ class CodebookPost(nn.Module):
         thresh = torch.minimum(max_sim, torch.ones_like(max_sim) * 
                                         self.cfg.threshold)
         valid = similarity >= thresh
+
+        confusion_mat = torch.bmm(mlc_proj, mlc_proj.permute(0, 2, 1))[valid]
+        identity_mat = self.identity_mat.repeat(valid.size(0), 1, 1)[valid]
+        loss_reg = F.l1_loss(confusion_mat, identity_mat)
 
         mlc_proj_valid = mlc_proj[valid]
         quantized_valid = quantized[valid]
@@ -118,7 +125,7 @@ class CodebookPost(nn.Module):
         quantized = mlc_proj + (quantized - mlc_proj).detach()
         quantized = self.projection(quantized)
 
-        return quantized, valid, loss_dvae
+        return quantized, valid, loss_dvae, loss_reg
 
 
 class PositionEmbeddings(nn.Module):
@@ -220,9 +227,11 @@ class Pretrain(nn.Module):
         code_id = torch.from_numpy(np.stack(code_id))
         code_id = code_id.to(mlc_proj.device)
 
-        quantized, mask, loss_dvae = self.codebookpost(mlc_proj, code, code_id)
+        quantized, mask, loss_dvae, loss_reg = self.codebookpost(mlc_proj,
+                                                                 code,
+                                                                 code_id)
         loss_rec, _ = self.denoise_head(img, quantized, ~mask)
-        return loss_rec, loss_dvae, code_id, mask
+        return loss_rec, loss_dvae, loss_reg, code_id, mask
 
 
 def lsa(mat):

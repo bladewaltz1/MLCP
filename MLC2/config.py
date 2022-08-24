@@ -22,6 +22,7 @@ _C.solver.betas = (0.9, 0.99)
 _C.solver.dvae_weight = 1.0 # TODO
 _C.solver.commitment_cost = 0.25
 _C.solver.rec_weight = 1.0
+_C.solver.reg_weight = 1.0
 
 _C.hidden_size = 768
 _C.image_size = 256
