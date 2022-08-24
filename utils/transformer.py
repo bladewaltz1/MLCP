@@ -41,11 +41,14 @@ class TransformerDecoder(nn.TransformerDecoder):
         x = tgt
 
         attn_weights_all = []
+        short_cut = False
         for mod in self.layers:
             x, attn_weights = mod(x, memory, tgt_mask=tgt_mask, 
                                   memory_mask=memory_mask,
                                   tgt_key_padding_mask=tgt_key_padding_mask,
-                                  memory_key_padding_mask=memory_key_padding_mask)
+                                  memory_key_padding_mask=memory_key_padding_mask,
+                                  short_cut=short_cut)
+            short_cut = True
             attn_weights_all.append(attn_weights)
 
         if self.norm is not None:
