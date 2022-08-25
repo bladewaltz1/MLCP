@@ -5,7 +5,6 @@ from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
 from utils import patchify
 from utils.transformer import TransformerDecoderLayer, TransformerDecoder
-from utils.scheduler import CosineScheduler
 
 
 class ImageEmbeddings(nn.Module):
@@ -29,20 +28,17 @@ class ImageEmbeddings(nn.Module):
         return embeddings
 
 
-class ImageEmbeddingsWithMask(ImageEmbeddings):
-    def __init__(self, cfg, dim):
-        super().__init__(cfg, dim)
-        self.mask_embedding = nn.Parameter(torch.zeros([1, 1, dim]))
-        torch.nn.init.normal_(self.mask_embedding, std=0.02)
+class PositionEmbeddings(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        num_patches = (cfg.image_size // cfg.patch_size) ** 2
+        self.position_embedding = nn.Embedding(num_patches,
+                                               cfg.pixel_decoder_cfg.hidden_size)
+        position_ids = torch.arange(num_patches).expand((1, -1))
+        self.register_buffer("position_ids", position_ids)
 
-    def forward(self, pixel_values, mask):
-        patch_embeds = self.patch_embedding(pixel_values)
-        patch_embeds = patch_embeds.flatten(2).transpose(1, 2)
-
-        mask = mask.to(torch.float32).unsqueeze(-1)
-        patch_embeds = patch_embeds * (1 - mask) + self.mask_embedding * mask
-
-        embeddings = patch_embeds + self.position_embedding(self.position_ids)
+    def forward(self):
+        embeddings = self.position_embedding(self.position_ids)
         return embeddings
 
 
@@ -71,32 +67,19 @@ class MLCDecoder(nn.Module):
 class GumbelQuantize(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        self.temperature_scheduler = CosineScheduler(cfg.temperature.init_value,
-                                                     cfg.temperature.total_step)
         self.embedding = nn.Embedding(cfg.num_codes, 
                                       cfg.mlc_decoder_cfg.hidden_size)
-        self.cfg = cfg
 
-    def forward(self, mlc_emb):
-        self.temperature_scheduler.step()
+    def forward(self, mlc_emb, tau):
         logits = torch.einsum("b l d, c d -> b l c", 
                               mlc_emb, self.embedding.weight)
-
-        # logits = logits / self.temperature_scheduler.value
-        # soft_one_hot = F.softmax(logits, dim=-1)
         soft_one_hot = F.gumbel_softmax(logits, 
-                                        tau=self.temperature_scheduler.value, 
+                                        tau=tau, 
                                         dim=-1, 
                                         hard=False)
         quantized = torch.einsum("b l c, c d -> b l d", 
                                  soft_one_hot, 
                                  self.embedding.weight)
-
-        # # kl divergence
-        # y = F.softmax(logits, dim=-1)
-        # diff = torch.sum(y * torch.log(y * self.cfg.num_codes + 1e-10), dim=-1)
-        # diff = diff.mean()
-
         return quantized, soft_one_hot.argmax(dim=-1)
 
 
@@ -129,13 +112,11 @@ class PretrainModel(nn.Module):
         self.encoder = ViTEncoder(encoder_cfg)
         self.layernorm = nn.LayerNorm(cfg.hidden_size, eps=1e-12)
         self.projection = nn.Linear(cfg.hidden_size, 
-                                     cfg.mlc_decoder_cfg.hidden_size)
+                                    cfg.mlc_decoder_cfg.hidden_size)
         self.mlc_decoder = MLCDecoder(cfg.mlc_decoder_cfg)
 
         self.codebook = GumbelQuantize(cfg)
-        self.mask_embedding = ImageEmbeddingsWithMask(
-            cfg, cfg.pixel_decoder_cfg.hidden_size
-        )
+        self.position_embedding = PositionEmbeddings(cfg)
         self.pixel_decoder = DenoiseDecoder(cfg.pixel_decoder_cfg)
         self.pixel_head = nn.Linear(cfg.pixel_decoder_cfg.hidden_size, 
                                     cfg.patch_size ** 2 * 3, 
@@ -155,7 +136,9 @@ class PretrainModel(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
-    def forward(self, img, mask):
+    def forward(self, img, tau):
+        bs = img.size(0)
+
         # image encoding
         patch_emb = self.patch_embedding(img)
         encoder_output = self.encoder(patch_emb)
@@ -167,13 +150,13 @@ class PretrainModel(nn.Module):
         mlc_emb, _ = self.mlc_decoder(hidden_states)
 
         # quantization
-        quantized, indices = self.codebook(mlc_emb)
+        quantized, indices = self.codebook(mlc_emb, tau)
 
         # image reconstruction
-        masked_embs = self.mask_embedding(img, mask)
-        denoised_patch_embs, _ = self.pixel_decoder(quantized, masked_embs)
-        denoised_patches = self.pixel_head(denoised_patch_embs[mask])
-        target_patches = patchify(img, self.cfg.patch_size)[mask]
+        position_embs = self.position_embedding().repeat(bs, 1, 1)
+        denoised_patch_embs, _ = self.pixel_decoder(quantized, position_embs)
+        denoised_patches = self.pixel_head(denoised_patch_embs)
+        target_patches = patchify(img, self.cfg.patch_size)
         mean = target_patches.mean(dim=-1, keepdim=True)
         var = target_patches.var(dim=-1, keepdim=True)
         target_patches = (target_patches - mean) / (var + 1.0e-6) ** 0.5
