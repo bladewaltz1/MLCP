@@ -7,7 +7,7 @@ _C.data_dir = "datasets/OpenImage/train/"
 _C.zipfile = "datasets/OpenImage.zip"
 
 _C.start_epoch = 0
-_C.epochs = 100
+_C.epochs = 400
 _C.device = "cuda"
 _C.log_time = 20
 _C.distributed = True
@@ -18,11 +18,11 @@ _C.warmup_epoches = 0
 _C.solver = CN()
 _C.solver.lr = 1e-4
 _C.solver.weight_decay = 5e-2
-_C.solver.betas = (0.9, 0.99)
+_C.solver.betas = (0.9, 0.97)
 
 _C.temperature = CN()
 _C.temperature.init_value = 1.0
-_C.temperature.warmup_epoches = 50
+_C.temperature.warmup_epoches = 100
 
 _C.hidden_size = 768
 _C.image_size = 256
@@ -44,4 +44,4 @@ _C.pixel_decoder_cfg.hidden_size = 256
 _C.pixel_decoder_cfg.nhead = 8
 _C.pixel_decoder_cfg.ffn_dim = 2048
 _C.pixel_decoder_cfg.dropout = 0.0
-_C.pixel_decoder_cfg.num_layers = 4
+_C.pixel_decoder_cfg.num_layers = 6
