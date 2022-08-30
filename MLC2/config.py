@@ -22,7 +22,8 @@ _C.solver.betas = (0.9, 0.97)
 
 _C.temperature = CN()
 _C.temperature.init_value = 1.0
-_C.temperature.warmup_epoches = 100
+_C.temperature.min_value = 0.0625
+_C.temperature.epoches = 100
 
 _C.hidden_size = 768
 _C.image_size = 256

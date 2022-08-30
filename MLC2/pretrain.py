@@ -106,7 +106,8 @@ if __name__ == "__main__":
 
     temperature = CosineScheduler(
         cfg.temperature.init_value,
-        cfg.temperature.warmup_epoches * iterations_per_epoch
+        cfg.temperature.min_value,
+        cfg.temperature.epoches * iterations_per_epoch
     )
 
     checkpointer = Checkpointer(model=model,
