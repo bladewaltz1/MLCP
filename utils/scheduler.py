@@ -12,9 +12,9 @@ class CosineScheduler:
 
     def step(self):
         self._value = (math.cos(math.pi * self._step / self.total_step) 
-                       * self.init_value / 2 + self.init_value / 2) \
-                      * (1 - self.min_value) + self.min_value
-        self._step += 1
+                        * self.init_value / 2 + self.init_value / 2) \
+                        * (1 - self.min_value) + self.min_value
+        self._step = min(self.total_step, self._step + 1)
 
     @property
     def value(self):
