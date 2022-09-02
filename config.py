@@ -23,7 +23,7 @@ _C.temperature.min_value = 0.0625
 _C.temperature.epoches = 100
 
 _C.hidden_size = 768
-_C.image_size = 256
+_C.image_size = 224
 _C.patch_size = 16
 _C.layer_norm_eps = 1e-12
 _C.num_codes = 8192

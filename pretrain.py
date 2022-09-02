@@ -13,13 +13,13 @@ from utils import mkdir
 from utils.logger import setup_logger
 from utils.scheduler import CosineScheduler
 
-from MLC2.config import _C as cfg
-from MLC2.model import PretrainModel
+from config import _C as cfg
+from model import PretrainModel
 
 # hfai modules
 import hfai
 import hfai.distributed as HfaiDist
-from hfai.datasets import HfaiImageNet
+from hfai.datasets import ImageNet as HfaiImageNet
 from hfai.nn.parallel import DistributedDataParallel as HfaiDDP
 
 
@@ -67,7 +67,7 @@ def main(local_rank):
 
     transform = transforms.Compose([
         transforms.RandomResizedCrop(
-            224, scale=(0.2, 1.0), 
+            cfg.image_size, scale=(0.2, 1.0), 
             interpolation=transforms.InterpolationMode.BICUBIC
         ),
         transforms.RandomHorizontalFlip(),
