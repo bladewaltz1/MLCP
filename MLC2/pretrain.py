@@ -1,11 +1,14 @@
+import hf_env
+hf_env.set_env('202111') 
+
 import argparse
 import os
 
 import torch
-import transformers
 from torchvision import transforms
 from torch.utils.data.distributed import DistributedSampler
 
+from transformers import get_cosine_schedule_with_warmup
 from utils import mkdir
 from utils.logger import setup_logger
 from utils.scheduler import CosineScheduler
@@ -89,7 +92,7 @@ def main(local_rank):
     steps_per_epoch = len(dataset) // (cfg.samples_per_gpu * world_size)
     warmup_steps = steps_per_epoch * cfg.warmup_epoches
     max_steps = cfg.epochs * steps_per_epoch
-    scheduler = transformers.get_cosine_schedule_with_warmup(
+    scheduler = get_cosine_schedule_with_warmup(
         optimizer=optimizer,
         num_warmup_steps=warmup_steps,
         num_training_steps=max_steps

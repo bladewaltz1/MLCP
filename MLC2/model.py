@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 
+from transformers.models.vit.modeling_vit import ViTEncoder, ViTConfig
 from utils import patchify
 from utils.transformer import TransformerDecoderLayer, TransformerDecoder
 
