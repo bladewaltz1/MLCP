@@ -1,16 +1,13 @@
 from yacs.config import CfgNode as CN
 
 _C = CN()
-_C.save_dir = "output/mlc2/"
-_C.model_path = ""
-_C.data_dir = "datasets/OpenImage/train/"
-_C.zipfile = "datasets/OpenImage.zip"
+_C.save_dir = "output/"
 
 _C.start_epoch = 0
 _C.epochs = 400
 _C.device = "cuda"
 _C.log_time = 20
-_C.distributed = True
+_C.ckpt_time = 20
 _C.samples_per_gpu = 64
 _C.num_workers = 8
 _C.warmup_epoches = 0
