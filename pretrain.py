@@ -131,12 +131,14 @@ def main(local_rank):
             if step % cfg.log_time == 0:
                 logger.info(
                     "  ".join([
+                        "epoch: {epoch}",
                         "iter: {iter}", 
                         "loss_rec: {loss_rec:.4f}", 
                         "#indices: {num_indices}",
                         "tau: {tau:.8f}",
                         "lr: {lr:.8f}",
                     ]).format(
+                        epoch=epoch, 
                         iter=step, 
                         loss_rec=loss_rec, 
                         tau=temperature.value, 
@@ -145,6 +147,7 @@ def main(local_rank):
                     )
                 )
 
+        start_step = 0
         if rank == 0 and (epoch % cfg.ckpt_time == 0 or epoch == cfg.epochs - 1):
             state = {"model": model.module.state_dict(), "epoch": epoch}
             torch.save(state, os.path.join(save_dir, f"{epoch:04d}.pth"))

@@ -16,9 +16,3 @@ eggs/
 *.egg
 wheels/
 share/python-wheels/
-
-__pycache__
-
-.archive
-
-output
